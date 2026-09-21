@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101411">
+  <title>唱一下 · iPhone 本機實驗室</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <header><a href="./" class="brand"><span class="brand-icon">♪</span> 唱一下 <small>LOCAL LAB</small></a><span class="pill">本機分析 · 不存錄音</span></header>
+  <section class="intro"><p class="eyebrow">IPHONE KARAOKE / 技術原型 01</p><h1>看著唱。<br><span>看見你的聲音。</span></h1><p>先測試手機能做到哪裡。音高是真實分析；歌曲基準未建立前，不會產生評分。</p></section>
+  <div id="environment" class="notice" role="status"></div>
+  <div class="layout">
+    <section class="card source-card">
+      <div class="section-top"><h2><span class="step">01</span> 放一首歌</h2><span class="subtle">YouTube 原生播放</span></div>
+      <form id="song-form"><label for="url">歌曲影片網址</label><div class="input-row"><input id="url" type="url" placeholder="https://www.youtube.com/watch?v=…" required autocomplete="off"><button type="submit">載入影片</button></div></form>
+      <p id="player-status" class="status" role="status">貼上網址後，影片會在這裡播放。</p>
+      <div class="video-shell"><div id="video-placeholder"><span>▶</span><p>你的下一首歌</p><small>播放器與麥克風分別啟動</small></div><div id="player"></div></div>
+      <div class="clock-row"><span>播放器時間 <b id="player-time">—</b></span><span>補償後位置 <b id="aligned-time">—</b></span></div>
+      <div class="divider"></div>
+      <h3>手機直接取得音訊</h3><p class="help">實際測試瀏覽器能否讀取 YouTube 頁面與音訊串流。不使用轉檔網站或代理伺服器。</p>
+      <button id="probe" class="secondary" type="button">測試此網址的音訊存取</button>
+      <ol id="probe-log" class="log" aria-live="polite"><li>尚未測試。可播放影片 ≠ 可讀取影片音訊。</li></ol>
+      <p class="footnote">通過存取測試仍不代表已完成音訊解碼、人聲分離或旋律擷取。</p>
+    </section>
+    <section class="card voice-card">
+      <div class="section-top"><h2><span class="step">02</span> 試試你的聲音</h2><span id="mic-badge" class="badge">麥克風未開啟</span></div>
+      <div class="pitch-value"><span id="note">—</span><div><strong id="frequency">等待收音</strong><small id="cents">單音音高 · 65–1000 Hz</small></div></div>
+      <div class="level-label"><span>收音音量</span><span id="level-text">— dBFS</span></div><meter id="level" min="0" max="1" value="0" aria-label="麥克風音量"></meter>
+      <div class="graph"><div class="graph-heading"><span>你的音高 · 最近 8 秒</span><span class="legend"><i></i> 即時音高</span></div><canvas id="pitch-chart" aria-label="最近八秒的麥克風音高曲線"></canvas><p>這是你唱出的音高，尚未與歌曲答案比對。</p></div>
+      <div class="button-row"><button id="mic-start" type="button">開啟麥克風</button><button id="mic-stop" class="secondary" type="button" disabled>停止收音</button></div>
+      <p id="mic-status" class="status" role="status">請先戴耳機，降低伴奏被麥克風收到的機會。</p>
+      <details><summary>收音裝置與狀態</summary><pre id="device">授權後才會顯示裝置資訊。</pre></details>
+    </section>
+    <section class="card timing-card">
+      <div class="section-top"><h2><span class="step">03</span> 看節拍，調延遲</h2><span class="subtle">手動測試工具</span></div>
+      <div class="timing-grid"><div><label for="bpm">手動節拍速度</label><div class="bpm-row"><input id="bpm" type="number" min="40" max="220" step="1" value="90"><span>BPM</span><button id="beat-toggle" class="secondary" type="button">啟動節拍燈</button></div><div id="beats" class="beats" aria-label="四拍節拍燈"><i></i><i></i><i></i><i></i></div><p class="help">節拍燈使用你設定的速度，不是從 YouTube 自動擷取。僅視覺閃動，不發出聲音。</p></div>
+      <div><label for="offset">手動時間補償 <output id="offset-value">0 ms</output></label><input id="offset" type="range" min="-500" max="1000" step="10" value="0"><div class="range-label"><span>−500 ms</span><span>+1000 ms</span></div><p class="help">正值讓比對位置回到較早的歌曲時間。只調整時間顯示，尚未校正、也不會消除耳機實際延遲。</p></div></div>
+      <div class="notice muted">藍牙、有線與手機麥克風請分別測試。更換裝置後，補償值會歸零；系統不會把未知延遲當成 0。</div>
+    </section>
+  </div>
+  <section class="result-note"><span>◎</span><div><h3>還沒有歌曲基準，因此先不給分。</h3><p>本原型沒有錄音檔、音訊上傳或持久化儲存。正式演唱紀錄預計只保留歌名與分數。</p></div></section>
+  <footer><span>唱一下 / Local-first experiment</span><span>麥克風 → 本機音高分析 → 畫面</span></footer>
+</main>
+<script type="module" src="app.mjs"></script>
+</body>
+</html>

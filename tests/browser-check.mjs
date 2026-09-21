@@ -1,0 +1,52 @@
+import { createRequire } from 'node:module';
+import { spawn } from 'node:child_process';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+const require = createRequire(process.env.PLAYWRIGHT_PACKAGE_ROOT || 'C:/Users/User/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/package.json');
+const { chromium } = require('playwright');
+const root = path.resolve(import.meta.dirname, '..');
+await mkdir(path.join(root, 'test-results'), { recursive: true });
+// Synthetic input only; no actual device audio is captured by this test.
+const rate = 48000, duration = 3, data = Buffer.alloc(44 + rate * duration * 2);
+data.write('RIFF'); data.writeUInt32LE(data.length - 8, 4); data.write('WAVEfmt ', 8); data.writeUInt32LE(16, 16);
+data.writeUInt16LE(1, 20); data.writeUInt16LE(1, 22); data.writeUInt32LE(rate, 24); data.writeUInt32LE(rate * 2, 28);
+data.writeUInt16LE(2, 32); data.writeUInt16LE(16, 34); data.write('data', 36); data.writeUInt32LE(data.length - 44, 40);
+for (let i = 0; i < rate * duration; i++) data.writeInt16LE(Math.round(Math.sin(2 * Math.PI * 440 * i / rate) * 10000), 44 + i * 2);
+const fixture = path.join(tmpdir(), 'karaoke-synthetic-a4.wav'); await writeFile(fixture, data);
+const server = spawn(process.execPath, ['server.mjs'], { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+let browser;
+try {
+  await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('error', reject); server.stderr.once('data', chunk => reject(new Error(chunk.toString()))); });
+  browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${fixture}`] });
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+  const page = await ctx.newPage(), errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('http://localhost:4173/');
+  assert.match(await page.locator('#environment').innerText(), /可要求/);
+  await page.getByRole('button', { name: '開啟麥克風', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#note').textContent === 'A4');
+  console.log('Synthetic A4 microphone:', await page.locator('#frequency').innerText());
+  await page.screenshot({ path: path.join(root, 'test-results/desktop.png'), fullPage: true });
+  await page.getByRole('button', { name: '停止收音', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#mic-stop').disabled);
+  assert.equal(await page.locator('#note').innerText(), '—');
+  await page.getByRole('button', { name: '啟動節拍燈' }).click();
+  assert.equal(await page.locator('#beats .active').count(), 1);
+  await page.getByRole('button', { name: '停止節拍燈' }).click();
+  await page.locator('#url').fill('https://www.youtube.com/watch?v=M7lc1UVf-VE');
+  await page.getByRole('button', { name: '測試此網址的音訊存取' }).click();
+  await page.waitForFunction(() => !document.querySelector('#probe').disabled, { timeout: 20000 });
+  console.log('Direct YouTube access:', await page.locator('#probe-log').innerText());
+  await page.getByRole('button', { name: '載入影片', exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector('#song-form button').disabled, { timeout: 20000 });
+  await page.waitForFunction(() => !document.querySelector('#player-status').textContent.includes('正在載入'), null, { timeout: 20000 }).catch(() => {}); console.log('YouTube UI:', await page.locator('#player-status').innerText()); console.log('YouTube iframe count:', await page.locator('iframe').count());
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'mobile horizontal overflow');
+  await page.screenshot({ path: path.join(root, 'test-results/mobile.png'), fullPage: true });
+  assert.equal(await page.evaluate(() => localStorage.length), 0);
+  assert.deepEqual(errors, []);
+  console.log('Browser checks passed (desktop Edge, mobile viewport; not iPhone Safari).');
+} finally { await browser?.close(); server.kill(); }
+
