@@ -233,7 +233,7 @@ $('local-check').addEventListener('click', async () => {
     if (!response.ok) throw new Error('本機工具回應失敗。');
     const result = await response.json();
     if (result.app !== 'karaoke-local-helper' || result.version !== 1 || typeof result.checks !== 'object' || !result.checks) throw new Error('本機工具版本不相容，請重新下載工具包。');
-    if (!result.features?.includes('library-location')) throw new Error('本機工具需要更新，請重新下載工具包，停止舊工具後再啟動。');
+    if (!result.features?.includes('separation-progress')) throw new Error('本機工具需要更新，請重新下載工具包，停止舊工具後再啟動。');
     const missing = Object.entries(localToolNames).filter(([key]) => result.checks[key] !== true).map(([, name]) => name);
     if (missing.length || !result.ready) {
       panel.dataset.state = 'warning'; $('install-guide').open = true;

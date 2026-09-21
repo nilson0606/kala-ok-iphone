@@ -56,3 +56,40 @@ test('late melody loses rhythm credit; measured compensation restores it', () =>
   assert.ok(late.result().score < correct.result().score);
   assert.equal(compensated.result().score, 100);
 });
+
+
+test('performed range excludes the unplayed tail while full-song mode still counts it', () => {
+  const full = new ScoringTake(reference()), performed = new ScoringTake(reference(), { rangeMode: 'performed' });
+  performed.begin(0);
+  for (let i = 0; i < 50; i++) { full.sample(i * .1 + .01, 440); performed.sample(i * .1 + .01, 440); }
+  performed.advance(5);
+  assert.equal(performed.result().score, 100);
+  assert.equal(performed.result().referenceSeconds, 5);
+  assert.equal(full.result().coverage, 50);
+  assert.ok(full.result().score < performed.result().score);
+});
+
+test('performed range counts silence and skipped notes inside its playback boundaries', () => {
+  const take = new ScoringTake(reference(), { rangeMode: 'performed' });
+  take.begin(2);
+  for (let i = 20; i < 40; i++) take.sample(i * .1 + .01, 440);
+  take.advance(6); // Missing two seconds still count even though no pitch was detected.
+  assert.equal(take.result().referenceSeconds, 4);
+  assert.equal(take.result().coverage, 50);
+  assert.equal(take.result().pitch, 50);
+  take.advance(3); // Rewinding must not erase the already reached end.
+  assert.equal(take.result().referenceSeconds, 4);
+});
+
+test('an intro-only take has no score; clearing a take does not erase the reusable reference', () => {
+  const ref = reference(); ref.frames.fill(null, 0, 20);
+  const take = new ScoringTake(ref, { rangeMode: 'performed' });
+  take.begin(0); take.advance(1);
+  assert.equal(take.result().score, null);
+  take.clear();
+  assert.equal(ref.frames.length, 100);
+  const next = new ScoringTake(ref, { rangeMode: 'performed' });
+  next.begin(2);
+  for (let i = 20; i < 40; i++) next.sample(i * .1 + .01, 440);
+  assert.equal(next.result().score, 100);
+});

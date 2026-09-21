@@ -39,7 +39,7 @@ async function erase(job) {
   jobs.delete(job.id);
 }
 function summary(job) {
-  return { id: job.id, stage: job.stage, message: job.message, ready: !!job.reference,
+  return { id: job.id, stage: job.stage, message: job.message, progress: job.progress ?? null, ready: !!job.reference,
     title: job.reference?.title, duration: job.reference?.duration, bpm: job.reference?.bpm,
     voicedSeconds: job.reference?.voicedSeconds, audioCleared: !!job.reference && !job.reference.hasPreview, cacheId: job.cacheId, cached: !!job.cached, hasPreview: !!job.reference?.hasPreview };
 }
@@ -65,6 +65,7 @@ async function start(videoId, seconds, preview = false) {
     let data; try { data = JSON.parse(line); } catch { return; }
     job.updated = Date.now();
     if (names[data.stage]) { job.stage = data.stage; job.message = names[data.stage]; }
+    if (data.stage === 'separating' && Number.isFinite(data.progress)) job.progress = Math.max(job.progress || 0, Math.min(100, Math.max(0, data.progress)));
     if (data.stage === 'failed') { job.stage = 'failed'; job.message = String(data.message || '處理失敗').slice(-1000); }
     if (data.stage === 'complete') {
       try {
@@ -108,7 +109,7 @@ async function start(videoId, seconds, preview = false) {
   return job;
 }
 export async function handleLocalJobs(req, res) {
-  if (req.url === '/session' && req.method === 'GET') { json(res, 200, { token, features: ['library', 'stem-preview', 'library-location'] }); return true; }
+  if (req.url === '/session' && req.method === 'GET') { json(res, 200, { token, features: ['library', 'stem-preview', 'library-location', 'separation-progress'] }); return true; }
   if (!req.url.startsWith('/jobs') && !req.url.startsWith('/library') && req.url !== '/shutdown') return false;
   if (req.headers['x-karaoke-token'] !== token) { json(res, 403, { error: 'Session token required' }); return true; }
   if (req.url === '/library/location' && req.method === 'GET') { json(res, 200, { ...await location.get(), selectionPending: !!folderPicker }); return true; }

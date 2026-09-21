@@ -23,7 +23,7 @@ try {
   await context.addInitScript(() => {
     window.YT = { Player: class {
       constructor(id, options) { this.options = options; this.time = 0; this.state = -1; window.fixturePlayer = this; setTimeout(() => options.events.onReady({ target: this }), 5); }
-      cueVideoById() { this.time = 0; this.state = 5; }
+      cueVideoById(videoId) { this.videoId = videoId; this.time = 0; this.state = 5; }
       getCurrentTime() { return this.time + (this.state === 1 ? (performance.now() - this.started) / 1000 : 0); }
       getPlayerState() { return this.state; }
       seekTo(t) { this.lastSeek = t; setTimeout(() => { this.time = t; this.started = performance.now(); }, this.seekDelay || 0); }
@@ -33,20 +33,22 @@ try {
       buffer() { this.time = this.getCurrentTime(); this.state = 3; this.options.events.onStateChange({ data: 3 }); }
     }};
   });
-  const page = await context.newPage(), errors = [], deleted = [];
+  const page = await context.newPage(), errors = [], deleted = [], createdVideos = [];
+  const fixtureJobs = new Map(); let firstProgress = true;
   page.on('pageerror', error => errors.push(error.message));
   let serial = 0, createDelay = 0, libraryConfigured = false, releasePicker, pickerPending = false;
   await page.route('http://127.0.0.1:4174/**', async route => {
     const request = route.request(), url = new URL(request.url());
     let value = {};
-    if (url.pathname === '/session') value = { token: 'fixture-token', features: ['library', 'library-location'] };
+    if (url.pathname === '/session') value = { token: 'fixture-token', features: ['library', 'library-location', 'separation-progress'] };
     else if (url.pathname === '/library/location/pick') { pickerPending = true; await new Promise(resolve => { releasePicker = resolve; }); pickerPending = false; value = { configured: libraryConfigured, cancelled: true, suggestedPath: 'C:/test-library' }; }
     else if (url.pathname === '/library/location/cancel') { releasePicker?.(); value = { cancelled: true }; }
     else if (url.pathname === '/library/location') { if (request.method() === 'POST') { assert.equal(request.postDataJSON().path, 'C:/test-library'); libraryConfigured = true; } value = { configured: libraryConfigured, path: libraryConfigured ? 'C:/test-library' : '', suggestedPath: 'C:/test-library' }; }
-    else if (url.pathname === '/library') value = { songs: [] };
+    else if (url.pathname === '/library') value = { songs: ['M7lc1UVf-VE','yCjJyiqpAuU'].map((videoId, i) => ({ id: videoId + '_0_v1', videoId, title: '測試歌 ' + (i + 1), seconds: 0, bytes: 1200, hasPreview: false })) };
     else if (request.method() === 'DELETE') { deleted.push(url.pathname); value = { cleared: true }; }
-    else if (request.method() === 'POST') { await new Promise(r => setTimeout(r, createDelay)); value = { id: String(++serial).padStart(32, '0') }; }
-    else if (url.pathname.endsWith('/reference')) value = { version: 1, videoId: 'M7lc1UVf-VE', title: 'Synthetic octave fixture', step: .1, duration: 4, frames: Array(40).fill(880), beats: [0, .5, 1, 1.5, 2, 2.5, 3, 3.5], bpm: 120 };
+    else if (request.method() === 'POST') { await new Promise(r => setTimeout(r, createDelay)); value = { id: String(++serial).padStart(32, '0') }; fixtureJobs.set(value.id, request.postDataJSON().videoId); createdVideos.push(request.postDataJSON().videoId); }
+    else if (url.pathname.endsWith('/reference')) value = { version: 1, videoId: fixtureJobs.get(url.pathname.split('/')[2]), cacheId: fixtureJobs.get(url.pathname.split('/')[2]) + '_0_v1', title: 'Synthetic octave fixture', step: .1, duration: 4, frames: Array(40).fill(880), beats: [0, .5, 1, 1.5, 2, 2.5, 3, 3.5], bpm: 120 };
+    else if (firstProgress) { firstProgress = false; value = { stage: 'separating', ready: false, progress: 42, message: '分離中' }; }
     else value = { stage: 'ready', ready: true, message: 'fixture ready' };
     await route.fulfill({ json: value, headers: { 'Access-Control-Allow-Origin': 'http://localhost:4173' } });
   });
@@ -68,6 +70,8 @@ try {
   assert.match(await page.locator('#library-location-status').innerText(), /C:\/test-library/);
   await page.locator('#url').fill('https://www.youtube.com/watch?v=M7lc1UVf-VE');
   await page.locator('#prepare-song').click();
+  await page.waitForFunction(() => document.querySelector('#prepare-progress').value === 42);
+  assert.match(await page.locator('#prepare-progress-label').innerText(), /42%/);
   await page.waitForFunction(() => document.querySelector('#prepare-status').textContent.startsWith('已就緒'));
   assert.ok(await page.locator('#library-choose').isDisabled(), 'active song locks library location');
   assert.ok(await page.locator('#sing-start').isEnabled(), 'start can request microphone permission when reference is ready');
@@ -95,13 +99,14 @@ try {
   await page.waitForFunction(() => document.querySelector('#score-status').textContent.includes('已結算'), null, { timeout: 10000 });
   const octaveScore = Number(await page.locator('#total-score').innerText());
   assert.ok(octaveScore >= 90, `allowed octave should score highly: ${octaveScore}`);
-  assert.equal(deleted.length, 1); assert.ok(await page.locator('#sing-start').isDisabled());
+  assert.equal(deleted.length, 0); assert.ok(await page.locator('#sing-start').isEnabled());
+  assert.ok(await page.locator('#score-range').isEnabled());
   assert.ok(await page.locator('#mic-stop').isDisabled());
   let rows = await page.evaluate(() => JSON.parse(localStorage.getItem('karaoke.scores.v1')));
   assert.equal(rows.length, 1); assert.deepEqual(Object.keys(rows[0]).sort(), ['score', 'title']);
+  // Reuse the retained reference without any new job/download.
+  assert.equal(createdVideos.length, 1);
   // Strict original pitch must penalize the same octave difference.
-  await page.locator('#prepare-song').click();
-  await page.waitForFunction(() => document.querySelector('#prepare-status').textContent.startsWith('已就緒'));
   await page.locator('#pitch-mode').selectOption('strict');
   await page.locator('#mic-start').click();
   await page.waitForFunction(() => document.querySelector('#note').textContent === 'A4');
@@ -118,14 +123,14 @@ try {
   await page.evaluate(() => window.fixturePlayer.endVideo());
   await page.waitForFunction(() => document.querySelector('#score-status').textContent.includes('已結算'), null, { timeout: 10000 });
   const strictScore = Number(await page.locator('#total-score').innerText());
-  assert.ok(strictScore <= 15); assert.equal(deleted.length, 2);
+  assert.ok(strictScore <= 15); assert.equal(deleted.length, 0); assert.equal(createdVideos.length, 1);
   // Cancel before POST completes: the late-created job must also be removed.
   createDelay = 700;
   const posting = page.waitForRequest(r => r.method() === 'POST');
   await page.locator('#prepare-song').click(); await posting;
   await page.locator('#cancel-song').click();
   await page.waitForTimeout(1000);
-  assert.equal(deleted.length, 3); assert.ok(await page.locator('#sing-start').isDisabled());
+  assert.equal(deleted.length, 2); assert.ok(await page.locator('#sing-start').isDisabled());
   rows = await page.evaluate(() => JSON.parse(localStorage.getItem('karaoke.scores.v1')));
   assert.equal(rows.length, 2, 'cancelled job must not add history');
   // Stopping capture preserves the take and keeps settlement enabled until the user clicks it.
@@ -138,7 +143,7 @@ try {
   await page.locator('#mic-start').click();
   await page.waitForFunction(() => document.querySelector('#note').textContent === 'A4');
   assert.ok(await page.locator('#finish-song').isEnabled(), 'playing before microphone permission must still start scoring');
-  await page.waitForFunction(() => Number(document.querySelector('#coverage-score').textContent) >= 40);
+  await page.waitForFunction(() => window.fixturePlayer.getPlayerState() === 1 && Number(document.querySelector('#coverage-score').textContent) >= 40);
   assert.equal(await page.evaluate(() => window.fixturePlayer.getPlayerState()), 1);
   assert.equal(await page.locator('#mic-stop').innerText(), '停止收音');
   await page.locator('#mic-stop').click();
@@ -157,7 +162,7 @@ try {
   assert.ok(await page.locator('#mic-stop').isDisabled());
   assert.ok(await page.locator('#finish-song').isDisabled(), 'a settled take cannot be submitted twice');
   rows = await page.evaluate(() => JSON.parse(localStorage.getItem('karaoke.scores.v1')));
-  assert.equal(rows.length, 3); assert.equal(deleted.length, 4);
+  assert.equal(rows.length, 3); assert.equal(deleted.length, 2);
   // Trying the microphone without a running take must not manufacture a score.
   await page.locator('#mic-start').click();
   await page.waitForFunction(() => document.querySelector('#note').textContent === 'A4');
@@ -165,18 +170,17 @@ try {
   await page.waitForFunction(() => document.querySelector('#mic-stop').disabled);
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('karaoke.scores.v1')).length), 3);
   // Restart while already playing must rewind and discard observations before resuming.
-  // Stop -> rewind -> start again must acquire the microphone and discard the old take.
-  await page.locator('#prepare-song').click();
-  await page.waitForFunction(() => document.querySelector('#prepare-status').textContent.startsWith('已就緒'));
+  // The same retained reference can be used again after settlement.
+  assert.equal(createdVideos.length, 3);
   await page.locator('#sing-start').click();
-  await page.waitForFunction(() => Number(document.querySelector('#coverage-score').textContent) >= 40);
+  await page.waitForFunction(() => window.fixturePlayer.getPlayerState() === 1 && Number(document.querySelector('#coverage-score').textContent) >= 40);
   assert.equal(await page.evaluate(() => window.fixturePlayer.getPlayerState()), 1);
   await page.locator('#sing-start').click();
   await page.waitForFunction(() => window.fixturePlayer.getPlayerState() === 1 && window.fixturePlayer.getCurrentTime() < .5);
   await page.waitForFunction(() => Number(document.querySelector('#coverage-score').textContent) < 20); // New take, first sample.
   assert.ok(Number(await page.locator('#coverage-score').innerText()) < 20, 'restarting during playback must reset the score');
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('karaoke.scores.v1')).length), 3, 'restart does not settle the discarded take');
-  await page.waitForFunction(() => Number(document.querySelector('#coverage-score').textContent) >= 40);
+  await page.waitForFunction(() => window.fixturePlayer.getPlayerState() === 1 && Number(document.querySelector('#coverage-score').textContent) >= 40);
   await page.locator('#mic-stop').click();
   await page.waitForFunction(() => document.querySelector('#mic-stop').disabled && window.fixturePlayer.getCurrentTime() <= .05);
   assert.equal(await page.evaluate(() => window.fixturePlayer.getPlayerState()), 2);
@@ -193,6 +197,29 @@ try {
   await page.waitForFunction(() => document.querySelector('#score-status').textContent.includes('已結算'));
   assert.ok(Number(await page.locator('#coverage-score').innerText()) < 20, 'old observations must not survive restart');
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('karaoke.scores.v1')).length), 4);
+  // Clicking a song in the library replaces only the active reference, not saved songs.
+  await page.locator('#library-panel summary').click();
+  const jobsBeforeSwitch = createdVideos.length;
+  await page.getByRole('button', { name: '載入 測試歌 1', exact: true }).click();
+  assert.equal(createdVideos.length, jobsBeforeSwitch, 'selecting the current song does not reload it');
+  await page.getByRole('button', { name: '載入 測試歌 2', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#prepare-status').textContent.startsWith('已就緒'));
+  assert.equal(createdVideos.length, jobsBeforeSwitch + 1);
+  assert.equal(createdVideos.at(-1), 'yCjJyiqpAuU');
+  assert.ok(deleted.every(url => url.startsWith('/jobs/')), 'switching must never delete library entries');
+  assert.equal(await page.evaluate(() => window.fixturePlayer.videoId), 'yCjJyiqpAuU');
+  await page.locator('#score-range').selectOption('performed');
+  await page.locator('#sing-start').click();
+  await page.waitForFunction(() => window.fixturePlayer.getCurrentTime() > 1.1 && window.fixturePlayer.getPlayerState() === 1);
+  assert.ok(await page.locator('#score-range').isDisabled());
+  await page.locator('#mic-stop').click();
+  await page.waitForFunction(() => window.fixturePlayer.getCurrentTime() <= .05);
+  await page.locator('#finish-song').click();
+  await page.waitForFunction(() => document.querySelector('#score-status').textContent.includes('已結算'));
+  assert.ok(Number(await page.locator('#coverage-score').innerText()) > 70, 'stop rewinding to zero must preserve the performed scoring interval');
+  assert.ok(await page.locator('#sing-start').isEnabled());
+  assert.ok(await page.locator('#score-range').isEnabled());
+  assert.equal(createdVideos.length, jobsBeforeSwitch + 1, 'partial settlement retains the current song too');
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ firstRunLibrarySetup: 'passed', fullPlaybackSettlement: 'passed', restartWhilePlayingClearsTake: 'passed', pauses: 'passed', buffering: 'passed', cancellation: 'passed', stopThenManualSettlement: 'passed', delayedSeekSync: 'passed', stopRewindsAndRestartEnabled: 'passed', localHistory: 'title+score only', errors }));
+  console.log(JSON.stringify({ separationProgress: 'passed', retainSongAfterSettlement: 'passed', librarySongSwitch: 'passed', performedRangeAfterRewind: 'passed', firstRunLibrarySetup: 'passed', fullPlaybackSettlement: 'passed', restartWhilePlayingClearsTake: 'passed', pauses: 'passed', buffering: 'passed', cancellation: 'passed', stopThenManualSettlement: 'passed', delayedSeekSync: 'passed', stopRewindsAndRestartEnabled: 'passed', localHistory: 'title+score only', errors }));
 } finally { await browser?.close(); server.kill(); await rm(fixture, { force: true }); }

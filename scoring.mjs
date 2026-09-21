@@ -55,21 +55,37 @@ function rhythmCredit(reference, actual, step, allowOctave) {
 }
 
 export class ScoringTake {
-  constructor(reference, { allowOctave = false } = {}) {
+  constructor(reference, { allowOctave = false, rangeMode = 'full' } = {}) {
     this.allowOctave = allowOctave;
+    this.rangeMode = rangeMode === 'performed' ? 'performed' : 'full';
+    this.startIndex = 0; this.endIndex = 0;
     this.reference = validateReference(reference);
     this.observations = new Map();
+  }
+  begin(time = 0) {
+    const index = Math.max(0, Math.min(this.reference.frames.length, Math.floor((Number.isFinite(time) ? time : 0) / this.reference.step)));
+    this.startIndex = this.endIndex = index;
+  }
+  advance(time) {
+    if (!Number.isFinite(time) || time < 0) return;
+    const length = this.reference.frames.length;
+    this.startIndex = Math.min(this.startIndex, Math.min(length, Math.floor(time / this.reference.step)));
+    this.endIndex = Math.max(this.endIndex, Math.min(length, Math.ceil(time / this.reference.step - 1e-8)));
   }
   sample(time, hz) {
     if (!Number.isFinite(time) || time < 0) return;
     const index = Math.floor(time / this.reference.step);
-    if (index >= this.reference.frames.length) return;
+    if (index >= this.reference.frames.length || index < this.startIndex) return;
+    this.endIndex = Math.max(this.endIndex, index + 1);
     // One observation per time cell: faster sampling or replaying cannot add points.
     this.observations.set(index, Number.isFinite(hz) && hz >= 65 && hz <= 1000 ? hz : null);
   }
   result(includeRhythm = true) {
     let expected = 0, voiced = 0, points = 0;
-    for (let i = 0; i < this.reference.frames.length; i++) {
+    const start = this.rangeMode === 'performed' ? this.startIndex : 0;
+    const end = this.rangeMode === 'performed' ? this.endIndex : this.reference.frames.length;
+    const frames = this.reference.frames.slice(start, end);
+    for (let i = start; i < end; i++) {
       const target = this.reference.frames[i];
       if (target === null) continue;
       expected++;
@@ -77,16 +93,16 @@ export class ScoringTake {
       if (actual !== null && actual !== undefined) { voiced++; points += pitchCredit(actual, target, this.allowOctave); }
     }
     if (!expected) return { score: null, pitch: 0, rhythm: 0, coverage: 0, referenceSeconds: 0, sampledSeconds: 0 };
-    const actual = this.reference.frames.map((_, i) => this.observations.get(i) ?? null);
-    const rhythm = includeRhythm ? rhythmCredit(this.reference.frames, actual, this.reference.step, this.allowOctave) : 0;
-    // Missing notes always stay in the denominator, including an unfinished song.
+    const actual = frames.map((_, i) => this.observations.get(i + start) ?? null);
+    const rhythm = includeRhythm ? rhythmCredit(frames, actual, this.reference.step, this.allowOctave) : 0;
+    // Missing notes inside the selected interval stay in the denominator, including silence and skipped sections.
     return {
       score: Math.round(100 * (.6 * points / expected + .25 * rhythm + .15 * voiced / expected)),
       rhythm: Math.round(100 * rhythm),
       pitch: Math.round(100 * points / expected),
       coverage: Math.round(100 * voiced / expected),
       referenceSeconds: Math.round(expected * this.reference.step * 10) / 10,
-      sampledSeconds: Math.round([...this.observations.keys()].filter(i => this.reference.frames[i] !== null).length * this.reference.step * 10) / 10,
+      sampledSeconds: Math.round([...this.observations.keys()].filter(i => i >= start && i < end && this.reference.frames[i] !== null).length * this.reference.step * 10) / 10,
     };
   }
   clear() { this.observations.clear(); this.reference.frames = []; }

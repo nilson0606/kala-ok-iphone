@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import time
+import threading
 from urllib.parse import urlparse, parse_qs
 import uuid
 
@@ -53,6 +54,46 @@ def run(args, timeout=300, env=None):
         error = re.sub(r'https?://\S+', '[remote URL]', result.stderr[-2500:])
         raise RuntimeError(error.strip() or f'{args[0]} exited with {result.returncode}')
     return result.stdout
+
+
+def separation_progress(line):
+    # Demucs reports completed inference chunks in seconds. Ignore model-download bars.
+    if 'seconds' not in line:
+        return None
+    match = re.search(r'(\d{1,3})%\|', line)
+    return min(100, int(match.group(1))) if match else None
+
+
+def run_separation(args, timeout=1800, env=None):
+    tail = []
+    last = [-1]
+    child = subprocess.Popen([str(arg) for arg in args], stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, text=True, encoding='utf-8',
+                             errors='replace', env=env,
+                             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+    def read_progress():
+        for line in child.stdout:
+            tail.append(line)
+            if len(tail) > 20:
+                tail.pop(0)
+            percent = separation_progress(line)
+            if percent is not None and percent > last[0]:
+                last[0] = percent
+                emit('separating', progress=percent)
+    reader = threading.Thread(target=read_progress, daemon=True)
+    reader.start()
+    try:
+        child.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        child.kill()
+        child.wait()
+        raise
+    finally:
+        reader.join()
+        child.stdout.close()
+    if child.returncode:
+        error = re.sub(r'https?://\S+', '[remote URL]', ''.join(tail)[-2500:])
+        raise RuntimeError(error.strip() or f'Demucs exited with {child.returncode}')
 
 
 def validate_audio(path: Path):
@@ -127,7 +168,7 @@ def main():
         if args.separate:
             emit('separating', model='htdemucs', device='cpu')
             env = {**os.environ, 'TORCH_HOME': str(ROOT / '.runtime' / 'models'), 'OMP_NUM_THREADS': '4'}
-            run([sys.executable, '-m', 'demucs.separate', '--two-stems', 'vocals',
+            run_separation([sys.executable, '-m', 'demucs.separate', '--two-stems', 'vocals',
                  '-n', 'htdemucs', '-d', 'cpu', '--shifts', '0', '--float32',
                  '-o', job / 'stems', audio], timeout=1800, env=env)
             stem_dir = job / 'stems' / 'htdemucs' / audio.stem

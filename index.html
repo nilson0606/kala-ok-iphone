@@ -23,12 +23,13 @@
       </ol>
       <p class="help">重開機不會移除安裝。只有關閉本機工具、重開機後未啟動，或連線權限被拒絕時，需要重新連線。Windows 重設／重灌後可能需要重建。</p>
     </details>
-    <label for="library-path">歌曲庫資料夾（每台電腦各自設定）</label>
-    <input id="library-path" type="text" placeholder="選擇資料夾，或輸入完整本機路徑" autocomplete="off" spellcheck="false">
-    <div class="button-row"><button id="library-choose" type="button" class="secondary">選擇資料夾</button><button id="library-use-path" type="button" class="secondary">使用此資料夾</button></div>
-    <button id="library-cancel-pick" type="button" class="secondary" hidden>取消資料夾選擇</button>
-    <p id="library-location-status" class="status" role="status">第一次使用請先指定歌曲庫位置。之後會記住這台電腦的設定。</p>
-    <p class="help">變更位置會切換歌曲庫；原資料夾的歌曲仍保留。選回原資料夾即可繼續使用。歌曲載入中請先「取消／卸載」，再變更位置。</p>
+    <section class="library-location" aria-labelledby="library-location-heading">
+      <div class="library-location-heading"><span class="folder-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M3 7V5h6l3 3h9v12H3V7Z"/><path d="M3 10h18"/></svg></span><div><h3 id="library-location-heading">你的本機歌曲庫</h3><p>設定一次，分析好的歌曲就留在這裡。</p></div><span class="pill">只存在本機</span></div>
+      <label for="library-path">儲存位置</label>
+      <div class="library-path-row"><input id="library-path" type="text" placeholder="選擇資料夾，或貼上完整路徑" autocomplete="off" spellcheck="false"><button id="library-choose" type="button">選擇資料夾</button><button id="library-use-path" type="button" class="secondary">使用此位置</button></div>
+      <div class="library-location-feedback"><p id="library-location-status" class="status" role="status">第一次先選擇歌曲庫位置，這台電腦會記住設定。</p><button id="library-cancel-pick" type="button" class="secondary" hidden>取消資料夾選擇</button></div>
+      <p class="footnote">換資料夾不會刪除原歌曲。歌曲載入中請先「取消／卸載」，再變更位置。</p>
+    </section>
     <p class="footnote">第一次準備歌曲需要下載模型；之後會重用本機模型。歌曲音訊不會上傳到雲端。</p>
   </section>
   <div class="layout">
@@ -44,6 +45,11 @@
       <label class="check-option"><input id="keep-preview" type="checkbox"> 保留分離音軌，供本機試聽（選用）</label>
       <p class="help">歌曲基準會自動保存在這台電腦；同一影片與分析範圍可直接重用。勾選試聽才額外保留人聲／伴奏音檔。</p>
       <div class="button-row prepare-buttons"><button id="prepare-song" type="button">準備歌曲基準</button><button id="cancel-song" class="secondary" type="button" disabled>取消／卸載</button></div>
+      <div id="prepare-progress-panel" class="prepare-progress-panel" hidden>
+        <ol id="prepare-steps" class="prepare-steps"><li>取得音訊</li><li>聲曲分離</li><li>建立基準</li><li>可開始唱</li></ol>
+        <div class="progress-heading"><span id="prepare-progress-label" role="status">正在準備…</span><span>本機處理</span></div>
+        <progress id="prepare-progress" max="100" aria-labelledby="prepare-progress-label"></progress>
+      </div>
       <p id="prepare-status" class="status" role="status">先啟動本機工具，再準備歌曲。首次分析可能需要幾分鐘。</p>
       <p class="footnote">自動分離與旋律估計可能受和聲、氣音影響，分數用於練習。純伴奏或主唱不清楚的影片可能無法建立基準。</p>
       <details id="preview-panel"><summary>分離結果試聽（選用）</summary>
@@ -51,7 +57,7 @@
         <div class="button-row"><button id="preview-vocals" class="secondary" disabled>試聽人聲</button><button id="preview-accompaniment" class="secondary" disabled>試聽伴奏</button></div>
         <audio id="stem-audio" controls preload="none"></audio><p id="preview-status" class="status">尚未載入試聽音軌。</p>
       </details>
-      <details id="library-panel"><summary>本機歌曲庫 · 載入／刪除</summary>
+      <details id="library-panel"><summary>本機歌單 · 點一首就載入</summary>
         <button id="library-refresh" class="secondary">重新整理歌曲庫</button><p id="library-status" class="status">啟動本機工具後可查看已保存歌曲。</p><ul id="library-list" class="library-list"></ul>
         <p class="footnote">刪除會移除這首歌的本機基準與試聽音軌，不影響演唱成績。完整歌曲與不同長度的片段分開保存。</p>
       </details>
@@ -93,10 +99,12 @@
     <div class="section-top"><h2><span class="step">04</span> 開始唱，留下這次成績</h2><span class="subtle">練習評分</span></div>
     <p id="result-title" class="score-title">尚未選定歌曲</p>
     <label for="pitch-mode">音域比對</label><select id="pitch-mode"><option value="octave">允許高／低八度（適合不同音域）</option><option value="strict">嚴格原調（與原唱相同音高）</option></select><p class="help">放寬八度差不會改變 YouTube 伴奏。其他音高偏差仍會扣分；演唱開始後固定本次模式。</p>
+    <label for="score-range">評分範圍</label><select id="score-range"><option value="full">整首歌曲（依已載入的分析範圍）</option><option value="performed">只比已演唱範圍（開始到停止）</option></select>
+    <p class="help">選「已演唱範圍」時，後面尚未唱到的部分不扣分；這段期間的漏唱、跳過仍計入。每輪開始後固定，重唱時可重新選擇。</p>
     <div class="score-grid"><div class="total"><strong id="total-score">—</strong><span>總分 / 100</span></div><div><strong id="pitch-score">—</strong><span>音準 · 60%</span></div><div><strong id="rhythm-score">—</strong><span>進拍 · 25%</span></div><div><strong id="coverage-score">—</strong><span>完整度 · 15%</span></div></div>
     <div class="button-row"><button id="sing-start" disabled type="button">從頭開始唱</button><button id="finish-song" disabled type="button" class="secondary">結束並結算</button></div>
     <p id="score-status" class="status" role="status">準備歌曲並開啟麥克風後，按播放就開始評分。</p>
-    <p class="footnote">暫停與緩衝不計分。漏唱、跳過或提前結束的段落會降低分數；可在中途按「結束並結算」，或等影片播完自動結算。進拍分數依旋律起音估計，不是專業聲樂評鑑。</p>
+    <p class="footnote">暫停與緩衝不計分。漏唱與跳過的段落會降低分數；「整首歌曲」模式也會計入提前結束的剩餘段落。可在中途按「結束並結算」，或等影片播完自動結算。進拍分數依旋律起音估計，不是專業聲樂評鑑。</p>
     <details><summary>演唱紀錄 · 只存在這個瀏覽器</summary><ul id="score-history" class="score-history"></ul><button id="clear-history" class="secondary" type="button">清除演唱紀錄</button></details>
   </section>
   <aside class="notice" aria-label="使用限制與免責聲明"><strong>本機測試用途 · 不得商用</strong><p class="help">本工具僅供本機測試與個人非商業練習。請尊重著作權，只處理您有權使用或已取得授權的內容，不得未經授權下載、複製或散布。本工具不提供歌曲內容或使用授權；使用者應自行確認其使用符合相關法規與平台規範。自動分析與評分僅供測試參考，不保證準確性。</p></aside>
