@@ -38,7 +38,8 @@ try {
   await page.route('http://127.0.0.1:4174/**', async route => {
     const request = route.request(), url = new URL(request.url());
     let value = {};
-    if (url.pathname === '/session') value = { token: 'fixture-token' };
+    if (url.pathname === '/session') value = { token: 'fixture-token', features: ['library'] };
+    else if (url.pathname === '/library') value = { songs: [] };
     else if (request.method() === 'DELETE') { deleted.push(url.pathname); value = { cleared: true }; }
     else if (request.method() === 'POST') { await new Promise(r => setTimeout(r, createDelay)); value = { id: String(++serial).padStart(32, '0') }; }
     else if (url.pathname.endsWith('/reference')) value = { version: 1, videoId: 'M7lc1UVf-VE', title: 'Synthetic octave fixture', step: .1, duration: 4, frames: Array(40).fill(880), beats: [0, .5, 1, 1.5, 2, 2.5, 3, 3.5], bpm: 120 };

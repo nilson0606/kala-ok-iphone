@@ -1,7 +1,9 @@
 import { youtubeId, noteOf, detectPitch, playerResponse, alignedTime } from './audio.mjs';
+import { createCalibration } from './calibration.mjs';
 import { createKaraokeSession } from './session.mjs';
 const $ = id => document.getElementById(id);
 let player, playerReady, apiPromise, stream, context, analyser, samples, micTimer;
+let calibration;
 let generation = 0, history = [], beatTimer, beatStart, probeController;
 const supported = window.isSecureContext && !!navigator.mediaDevices?.getUserMedia;
 $('environment').textContent = supported ? '桌機收音環境就緒。可測試麥克風與播放器；未取得歌曲基準前不計分。' : '無法開啟麥克風。請用桌機 Chrome／Edge 開啟 HTTPS 網址，並確認瀏覽器有收音權限。';
@@ -29,7 +31,7 @@ async function loadVideo(e) {
   status('正在載入 YouTube 播放器…');
   try {
     await singing.changeSong(id);
-    await loadAPI(); resetOffset();
+    await loadAPI();
     if (player) { player.cueVideoById(id); status('影片已切換，請在播放器內按播放。'); }
     else { playerReady = new Promise((resolve, reject) => {
       const readyTimeout = setTimeout(() => reject(new Error('播放器初始化逾時，請重新載入頁面。')), 20000);
@@ -37,7 +39,7 @@ async function loadVideo(e) {
       playerVars: { playsinline: 1, origin: location.origin, autoplay: 0 },
       events: {
         onReady: () => { clearTimeout(readyTimeout); resolve(); $('video-placeholder').style.display = 'none'; status('請按影片上的播放按鈕。'); },
-        onStateChange: e => { status(({ '-1': '尚未開始', 0: '影片結束', 1: '播放中', 2: '暫停', 3: '緩衝中', 5: '已就緒' }[e.data] || '播放器狀態變更')); singing.playerState(e.data); },
+        onStateChange: e => { status(({ '-1': '尚未開始', 0: '影片結束', 1: '播放中', 2: '暫停', 3: '緩衝中', 5: '已就緒' }[e.data] || '播放器狀態變更')); if (e.data === 1) calibration?.cancel(); singing.playerState(e.data); },
         onAutoplayBlocked: () => status('請直接點影片上的播放按鈕。'),
         onError: e => { clearTimeout(readyTimeout); reject(new Error(`影片無法播放（${e.data}），請換影片。`)); status(`影片無法播放（${e.data}）。可能禁止嵌入、已移除或需登入；請換影片。`); singing.playerState(2); }
       }
@@ -96,7 +98,7 @@ $('probe').addEventListener('click', async () => {
 function latency(x) { return Number.isFinite(x) ? `${Math.round(x * 1000)} ms（估計）` : '未提供，不能當作 0 ms'; }
 $('offset').addEventListener('input', () => { $('offset-value').textContent = `${$('offset').value} ms`; });
 async function stopMic(message = '收音已停止，聲音資料已釋放。') {
-  generation++; clearInterval(micTimer);
+  generation++; clearInterval(micTimer); calibration?.cancel();
   const oldStream = stream, oldContext = context;
   stream = context = analyser = samples = null; history = [];
   oldStream?.getTracks().forEach(t => t.stop());
@@ -143,6 +145,7 @@ function readMic() {
   const result = stream.getAudioTracks()[0]?.muted ? { hz: null, rms: 0 } : detectPitch(samples, context.sampleRate);
   const note = noteOf(result.hz), now = performance.now() / 1000;
   history.push({ time: now, midi: note?.midi ?? null }); history = history.filter(p => now - p.time <= 8);
+  calibration?.sample(now - analyser.fftSize / (2 * context.sampleRate), result.hz);
   if (player?.getCurrentTime) singing.sample(player.getCurrentTime() - Number($('offset').value) / 1000 - analyser.fftSize / (2 * context.sampleRate), result.hz);
   $('note').textContent = note?.name ?? '—'; $('frequency').textContent = result.hz ? `${result.hz.toFixed(1)} Hz` : '未偵測到穩定音高';
   $('cents').textContent = note ? `${note.cents >= 0 ? '+' : ''}${note.cents} cents · 相對最近音名，非歌曲分數` : '單音音高 · 65–1000 Hz';
@@ -223,6 +226,7 @@ $('local-check').addEventListener('click', async () => {
     if (!response.ok) throw new Error('本機工具回應失敗。');
     const result = await response.json();
     if (result.app !== 'karaoke-local-helper' || result.version !== 1 || typeof result.checks !== 'object' || !result.checks) throw new Error('本機工具版本不相容，請重新下載工具包。');
+    if (!result.features?.includes('library')) throw new Error('本機工具需要更新，請停止後重新啟動。');
     const missing = Object.entries(localToolNames).filter(([key]) => result.checks[key] !== true).map(([, name]) => name);
     if (missing.length || !result.ready) {
       panel.dataset.state = 'warning'; $('install-guide').open = true;
@@ -230,6 +234,7 @@ $('local-check').addEventListener('click', async () => {
       $('local-detail').textContent = '缺少或無法使用：' + (missing.join('、') || '請重新執行安裝腳本') + '。請參考下方安裝指引。';
     } else {
       panel.dataset.state = 'ready';
+      window.dispatchEvent(new Event('local-tools-ready'));
       $('local-status').textContent = '✓ 本機工具已啟動，音訊處理環境已就緒。';
       $('local-detail').textContent = 'yt-dlp、FFmpeg 與 Demucs 已找到。音訊在你的電腦處理；目前此按鈕只檢查環境，不會下載或錄音。';
     }
@@ -240,6 +245,8 @@ $('local-check').addEventListener('click', async () => {
   } finally { clearTimeout(timer); button.disabled = false; }
 });
 
-const singing = createKaraokeSession({ player: () => player, micReady: () => !!stream && context?.state === 'running', stopMic: () => stopMic(), stopBeats, loadVideo: () => loadVideo() });
+const singing = createKaraokeSession({ player: () => player, micReady: () => !!stream && context?.state === 'running', stopMic: () => stopMic(), stopBeats, loadVideo: () => loadVideo(), cancelCalibration: () => calibration?.cancel() });
+
+calibration = createCalibration({ context: () => context, micReady: () => !!stream && context?.state === 'running', beforeStart: () => singing.pauseForCalibration() });
 
 window.addEventListener('pageshow', e => { if (e.persisted) location.reload(); });

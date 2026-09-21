@@ -82,6 +82,7 @@ def main():
     parser.add_argument('--seconds', type=int, default=15, help='YouTube clip length, 1–120 seconds; 0 for full track (max 15 minutes)')
     parser.add_argument('--separate', action='store_true', help='Separate vocals and accompaniment locally with Demucs')
     parser.add_argument('--reference', action='store_true', help='Build a temporary melody/beat reference')
+    parser.add_argument('--preview', action='store_true', help='Keep compressed stems for optional local listening')
     parser.add_argument('--job-id', help=argparse.SUPPRESS)
     args = parser.parse_args()
     if not 0 <= args.seconds <= 120:
@@ -91,6 +92,8 @@ def main():
             parser.error(f'{command} is required on PATH')
     if args.reference and (not args.url or not args.separate):
         parser.error('--reference requires --url and --separate')
+    if args.preview and not args.reference:
+        parser.error('--preview requires --reference')
     if args.job_id and not re.fullmatch(r'[a-f0-9]{32}', args.job_id):
         parser.error('Invalid job ID')
     job = ROOT / '.runtime' / 'jobs' / (args.job_id or uuid.uuid4().hex)
@@ -139,9 +142,12 @@ def main():
             emit('reference')
             from reference_audio import build_reference
             report['reference'] = build_reference(stem_dir / 'vocals.wav', stem_dir / 'no_vocals.wav', video_id, title, job / 'reference.json')
-            # Once the numerical baseline exists, no audio files are needed.
+            if args.preview:
+                for name, filename in [('vocals', 'vocals.wav'), ('accompaniment', 'no_vocals.wav')]:
+                    run(['ffmpeg', '-v', 'error', '-i', stem_dir / filename, '-codec:a', 'libmp3lame', '-b:a', '128k', job / (name + '.mp3')])
+            # Retain only opted-in compressed stems; discard source and large WAVs.
             for generated in list(job.iterdir()):
-                if generated.name != 'reference.json':
+                if generated.name not in (['reference.json', 'vocals.mp3', 'accompaniment.mp3'] if args.preview else ['reference.json']):
                     if generated.is_dir():
                         if generated.resolve().parent != job.resolve():
                             raise ValueError('Unexpected temporary directory')
@@ -150,7 +156,7 @@ def main():
                         generated.unlink()
             report['source'] = {k:v for k,v in report['source'].items() if k != 'path'}
             report['stems'] = {}
-            report['audioCleared'] = True
+            report['audioCleared'] = not args.preview
         report['elapsedSeconds'] = round(time.monotonic() - started, 2)
         (job / 'report.json').write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding='utf-8')
         emit('complete', report=str(job / 'report.json'), elapsedSeconds=report['elapsedSeconds'])
