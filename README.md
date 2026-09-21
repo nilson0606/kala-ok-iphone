@@ -1,85 +1,65 @@
-# 唱一下：桌機本機技術原型
+# 唱一下：桌機本機練唱版
 
-目標：看 YouTube 播放器唱歌，音訊在使用者電腦處理，最終只保留歌名與分數。
+網址：https://nilson0606.github.io/kala-ok-iphone/
 
-## 目前功能
+桌機 Windows + Chrome／Edge 優先。GitHub Pages 提供介面；YouTube 音訊取得、格式驗證、人聲分離、旋律／節拍估計，以及麥克風評分都在自己的電腦執行。iPhone 尚未完成這套本機工具流程。
 
-- YouTube 原生嵌入播放與播放時間。
-- 桌機麥克風選擇、音高、音名、音分、音量、最近八秒曲線。
-- 直接音訊存取診斷，沒有伺服器代理或第三方轉檔服務。
-- 手動 BPM 節拍燈與時間補償工具。
-- 音訊中斷、裝置改變、頁面隱藏時停止收音。
+## 使用方式
 
-尚未完成 yt2mp3、人聲分離、歌曲主旋律／節拍擷取、歌曲基準與評分。沒有基準就不給分。直接讀取失敗可能由 CORS、網路或阻擋造成，診斷不會武斷區分。
+1. 先安裝 Node.js 22+、Python 3.12 與 FFmpeg／ffprobe（放入 PATH）。下載儲存庫 ZIP 並解壓縮到固定位置。
+2. 在工具資料夾執行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-local.ps1`。只需初次安裝；模型第一次分離時才下載。
+3. 執行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\start-local.ps1`，工具會在背景啟動並開啟網站。若網站詢問麥克風／本機網路權限，請允許。
+4. 點「檢查本機工具」，貼 YouTube 歌曲網址，選擇完整歌曲或前 15／30／60 秒，點「準備歌曲基準」。需要原唱清楚的影片；純伴奏通常無法建立旋律基準。完整歌曲最長 15 分鐘，不支援直播。
+5. 戴耳機，開啟麥克風。基準就緒後點「從頭開始唱」，或直接按 YouTube 播放。暫停／緩衝會暫停評分。片段分析只評該片段；跳過或提早結束的段落算漏唱。
+6. 結束後只在該瀏覽器保存歌名與分數。清除紀錄可用頁面按鈕。再唱一次需重新準備基準。
 
-麥克風分析不使用 MediaRecorder、不上傳、不寫入檔案、localStorage 或 IndexedDB。短暫音高數值在記憶體中；停止即清除。正式版演唱紀錄才會儲存歌名與分數。YouTube 播放與診斷仍會連線到 Google / YouTube。
+結束本機工具：`powershell -NoProfile -ExecutionPolicy Bypass -File .\stop-local.ps1`。
 
-## 執行
+重開機不會移除安裝，但需要重新啟動工具。Windows 重設／重灌或搬到新電腦後應重建 Python 虛擬環境，即使原工具資料夾仍在。若沒有 Python Launcher，可用 `setup-local.ps1 -PythonPath 'C:\path\to\python.exe'` 指定 Python 3.12。
 
-Node.js 20+，不需安裝套件：
+## 評分與顯示
 
-```sh
+- 音準 60%、旋律起音的進拍 25%、完整度 15%。前奏／間奏中沒有可辨識旋律的格子不列入音準分母。
+- 預設允許高／低八度，適合不同音域唱同一旋律；保留嚴格原調模式。其他音高偏差仍扣分。模式演唱開始後固定。
+- 25 cents 內音準滿分，至 200 cents 逐漸降為零。旋律起音配對容許最多約 350 ms，80 ms 內不扣進拍分；這些都是可調的練習規則。
+- 綠線是麥克風音高，藍線是原唱參考，容許八度時不必重疊。顯示原唱音名、即時偏高／偏低、音量與節拍燈。
+- 旋律基準每 100 ms 一格。麥克風採單音 YIN 類演算法，65–1000 Hz。重複採樣／回放不會累加同一時間格的分數。
+- 手動延遲補償會改變評分比對時間；正值從播放器時間扣除。補償不能消除耳機硬體延遲。分析視窗的中心延遲另行扣除。裝置變更時補償歸零。
+- 自動 BPM／節拍燈只是伴奏節奏的估計；進拍分數使用旋律起音。兩者可能受混音、和聲、氣音、切分與變速影響。沒有辨識到節拍時可用手動節拍燈。
+
+這是練習評分，尚未經過真人演唱資料集與人工標註驗證，不能宣稱專業準確度。不辨識歌詞，也不能判定情感、音色或唱法好壞。伴奏外放進入麥克風可能造成誤判，建議戴耳機。
+
+## 資料生命週期
+
+- `.runtime/venv` 是安裝的工具，`.runtime/models` 是可重用的模型。
+- 網頁啟動的工作先在 `.runtime/jobs/<id>` 暫存下載及分離音檔；建立數值基準後立即刪除音訊，數值基準移入本機工具與頁面記憶體，磁碟工作目錄也刪除。
+- 唱完／取消／切換歌曲會釋放旋律基準並通知工具清理。網頁關閉時也嘗試清理；未送達時，持續執行的工具約 15 分鐘閒置後清理工作。突然斷電時，殘留暫存由工具下次啟動／定期清理處理。
+- 麥克風不使用 MediaRecorder，不上傳也不寫入音檔。停止收音即釋放麥克風資料。
+- localStorage 僅保存最近 100 筆 `{title, score}`，不保存音訊、基準、時間戳或影片 ID。
+- YouTube 播放／取得音訊，以及第一次安裝／下載模型仍需要網路。沒有音訊上傳 API、雲端分離或第三方轉檔網站。
+
+本機服務只綁定 `127.0.0.1:4174`，檢查 Host 與 Origin，工作 API 需要頁面向本機取得的記憶體權杖。允許來源為本站 GitHub Pages origin 與本機開發頁面。GitHub Pages 同帳號的網站共享 origin，請將該帳號下網站視為同一信任範圍。
+
+## 開發及測試
+
+```powershell
 npm start
 npm test
+.runtime\venv\Scripts\python.exe -m unittest discover -s tools -p "test_*.py"
+node tests/browser-check.mjs
+node tests/flow-check.mjs
+# 需先啟動 helper；會連網取得 30 秒測試歌曲，完成後刪除音訊及基準：
+node tests/local-pipeline-check.mjs
 ```
 
-桌面使用 http://localhost:4173 。iPhone 請使用 GitHub Pages 的 HTTPS 網址，以 Safari 開啟。電腦 localhost 不是 iPhone localhost；一般 HTTP 區網位址不能作為手機麥克風測試環境。
+開發頁面為 http://localhost:4173。瀏覽器測試需要 Playwright；`PLAYWRIGHT_PACKAGE_ROOT` 可指定含 Playwright 依賴的 package.json。`BROWSER_CHANNEL=chrome` 可切換流程測試至 Chrome，預設 Edge。測試使用合成音訊，不開啟實體麥克風。流程測試模擬播放器與本機回應；網路管線測試另行驗證真實下載及 Demucs。手機寬度檢查不代表 iPhone Safari 真機通過。
 
-## iPhone 驗收
+已驗證：11 項 JavaScript 單元測試（頻率、噪音、網址、分數、八度差、唱晚及補償）；5 項 Python 測試（網址、旋律及已知節拍）。Edge 流程測試的合成低八度聲音在允許模式 98 分、嚴格模式 15 分，含暫停、緩衝、取消和紀錄欄位驗證。Chrome 同流程也通過，允許模式 100 分、嚴格模式 15 分。數值可能因瀏覽器採樣時序略變。
 
-1. 貼 YouTube 影片網址，載入並在播放器內點播放。
-2. 點「測試此網址的音訊存取」，查看實際成功／失敗的階段。這是存取可行性測試，不是完整的下載器；未處理播放器簽章、登入或驗證挑戰。
-3. 戴耳機，允許麥克風，持續唱單音看音高線。安靜時不應產生音符；伴奏外放、和聲、雜訊可能影響分析。
-4. 測試拒絕權限、等待授權時按停止、收音後停止／重啟、切換 App、鎖屏、耳機切換。
-5. 手機、有線、藍牙分別測試。系統未通知裝置切換時，手動重啟收音並重新校正。
+真實本機管線測試：Twinkle Twinkle Little Star（Super Simple Songs）前 30 秒，在這台電腦約 21 秒完成下載、驗證、CPU Demucs 分離及參考分析。長度 29.994 秒，估計有音高的區間 10.1 秒、88.2 BPM；生成後磁碟工作目錄已清除，DELETE 後記憶體基準不可再讀。這證明流程可通，不代表擷取的每個音符均正確。
 
-## 延遲與節拍
+## 部署
 
-手動補償目前只改變比對時間的顯示，不影響播放、不消除硬體延遲，也不參與評分。正值代表從播放器時間扣除。瀏覽器輸入延遲可能未知；本頁 AudioContext 輸出延遲不等於 YouTube iframe 的實際延遲，因此不會自動填入補償。
+推送 main 後，GitHub Actions 執行單元測試，僅發布 `index.html`、`style.css`、`app.mjs`、`audio.mjs`、`session.mjs`、`scoring.mjs`。本機工具、測試檔案與 `.runtime` 不進 Pages。網頁程式更新後可能需 Ctrl+F5；本機工具更新後需重新啟動。
 
-節拍燈依手動 BPM 運作，不是歌曲自動拍點，不發聲。音高採單音 YIN 類演算法，範圍 65–1000 Hz，不能當成混音歌曲的人聲分離。
-
-## 測試
-
-- node:test：44.1/48 kHz 人聲音域及諧波、靜音／DC／噪音、網址白名單、時間補償方向、外部 JSON 純解析。
-- tests/browser-check.mjs：使用內建 Playwright 與無頭 Edge，輸入合成 A4 音訊，不取得實體麥克風。驗證音高、停止、節拍燈、存取診斷、390 px 版面與零持久儲存。需可用的 Playwright 套件；可用 PLAYWRIGHT_PACKAGE_ROOT 指向其 package.json 所在父套件。
-- 桌面瀏覽器與手機尺寸測試不代表 iPhone Safari 或藍牙真機通過。
-
-## GitHub Pages
-
-工作流程僅發布 index.html、style.css、app.mjs、audio.mjs。main 更新先執行單元測試，再發布 Pages。儲存庫 Pages 的來源需設為 GitHub Actions。無音訊伺服器、資料庫、上傳 API 或秘密金鑰。
-
-## 桌機優先開發（原型 02）
-
-先使用桌機 Edge／Chrome。麥克風授權後可選擇輸入裝置；切換會停止收音並重設時間補償。新 scoring.mjs 是尚未接入介面的實驗評分核心，需匹配影片 ID 的旋律參考；暫定音準 70%、演唱覆蓋率 30%，不是節奏評分。未唱與未完成的段落保留在分母，禁止重複採樣累加分數。沒有有效旋律基準時，網頁仍不給分。已選擇本機 yt-dlp 與 Demucs 路徑，詳見下方。
-
-
-## 本機取得音訊與人聲分離（已實測）
-
-GitHub Pages 只提供網頁。yt-dlp、FFmpeg、Demucs 都在使用者電腦執行；音訊不上傳。這一階段的命令列流程已完成，尚未與網頁按鈕連接，也尚未建立歌曲基準。
-
-需要 Node.js 22+、Python 3.12、FFmpeg/ffprobe（在 PATH）。第一次安裝：
-
-```powershell
-.\setup-local.ps1
-# 若沒有 Python Launcher，可指定 Python 3.12：
-.\setup-local.ps1 -PythonPath 'C:\path\to\python.exe'
-```
-
-先測前 15 秒，預設會取得音訊、完整解碼驗證、分離並驗證兩軌：
-
-```powershell
-.\run-local-audio.ps1 -Url 'https://www.youtube.com/watch?v=VIDEO_ID'
-# 僅取得音訊
-.\run-local-audio.ps1 -Url 'https://www.youtube.com/watch?v=VIDEO_ID' -DownloadOnly
-# 完整歌曲，上限 15 分鐘
-.\run-local-audio.ps1 -Url 'https://www.youtube.com/watch?v=VIDEO_ID' -Seconds 0
-```
-
-工具位於 `.runtime/venv`，模型位於 `.runtime/models`，每次輸出位於 `.runtime/jobs/<id>`。三者不會提交到 GitHub 或 Pages。重新開機不會刪除這些檔案；重灌、系統重設或搬到新電腦可能須重跑 setup。模型權重可保留重用，不必每次重新下載。Python 虛擬環境依賴基礎 Python 路徑，因此即使 D 槽保留，重灌後仍應重建環境。
-
-成功測試的音訊目前暫留本機供檢查；失敗的工作會清除該工作產生的檔案。正式評分流程需在結束後清除成功工作的音訊與基準，只保存歌名及分數；這個生命週期尚未串接。程式不刪除 `--input` 指定的原始檔案。
-
-實測：YouTube 官方播放器示範影片的前 15 秒取得 MP3（48 kHz、雙聲道、15.024 秒），FFmpeg 完整解碼成功；CPU htdemucs 分成 vocals.wav 與 no_vocals.wav，兩者均為 44.1 kHz、雙聲道、14.993515 秒，可完整解碼。驗證與分離約 15.94 秒（這台電腦、此次短片段）；不能外推完整歌曲耗時，也不代表已驗證真實歌曲的分離品質或評分準確度。
-
-Python URL 測試：`.runtime/venv/Scripts/python.exe tools/test_audio_pipeline.py`。
+`run-local-audio.ps1` 是開發診斷指令，會留下輸出供檢查，不是一般網頁流程；使用後自行清除該工作目錄。原始 `--input` 檔案不會被刪除。

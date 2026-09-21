@@ -17,6 +17,8 @@ import time
 from urllib.parse import urlparse, parse_qs
 import uuid
 
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -79,13 +81,19 @@ def main():
     source.add_argument('--input', type=Path, help='Existing local audio; original is not modified')
     parser.add_argument('--seconds', type=int, default=15, help='YouTube clip length, 1–120 seconds; 0 for full track (max 15 minutes)')
     parser.add_argument('--separate', action='store_true', help='Separate vocals and accompaniment locally with Demucs')
+    parser.add_argument('--reference', action='store_true', help='Build a temporary melody/beat reference')
+    parser.add_argument('--job-id', help=argparse.SUPPRESS)
     args = parser.parse_args()
     if not 0 <= args.seconds <= 120:
         parser.error('--seconds must be between 0 and 120')
     for command in ['ffmpeg', 'ffprobe']:
         if not shutil.which(command):
             parser.error(f'{command} is required on PATH')
-    job = ROOT / '.runtime' / 'jobs' / uuid.uuid4().hex
+    if args.reference and (not args.url or not args.separate):
+        parser.error('--reference requires --url and --separate')
+    if args.job_id and not re.fullmatch(r'[a-f0-9]{32}', args.job_id):
+        parser.error('Invalid job ID')
+    job = ROOT / '.runtime' / 'jobs' / (args.job_id or uuid.uuid4().hex)
     job.mkdir(parents=True)
     started = time.monotonic()
     try:
@@ -96,13 +104,16 @@ def main():
                        '--no-cache-dir', '--js-runtimes', 'node', '--socket-timeout', '15',
                        '--retries', '1', '--no-progress', '--quiet', '-f', 'bestaudio',
                        '--max-filesize', '100M', '--extract-audio', '--audio-format', 'mp3',
-                       '--audio-quality', '5', '-o', job / 'audio.%(ext)s']
+                       '--audio-quality', '5', '--write-info-json', '-o', job / 'audio.%(ext)s']
             if args.seconds:
-                command += ['--download-sections', f'*0-{args.seconds}']
+                command += ['--match-filter', '!is_live & !is_upcoming', '--download-sections', f'*0-{args.seconds}']
             else:
-                command += ['--match-filter', 'duration <= 900 & !is_live']
+                command += ['--match-filter', 'duration <= 900 & !is_live & !is_upcoming']
             run(command + [url], timeout=600)
             audio = job / 'audio.mp3'
+            info = json.loads((job / 'audio.info.json').read_text(encoding='utf-8'))
+            title = str(info.get('title') or url)[0:300]
+            video_id = parse_qs(urlparse(url).query)['v'][0]
         else:
             source = args.input.resolve(strict=True)
             audio = job / ('audio' + source.suffix.lower())
@@ -124,6 +135,22 @@ def main():
                     raise ValueError(f'{name} duration does not match source')
                 report['stems'][name] = {'path': str(file), **result}
                 emit('stem_validated', stem=name, **result)
+        if args.reference:
+            emit('reference')
+            from reference_audio import build_reference
+            report['reference'] = build_reference(stem_dir / 'vocals.wav', stem_dir / 'no_vocals.wav', video_id, title, job / 'reference.json')
+            # Once the numerical baseline exists, no audio files are needed.
+            for generated in list(job.iterdir()):
+                if generated.name != 'reference.json':
+                    if generated.is_dir():
+                        if generated.resolve().parent != job.resolve():
+                            raise ValueError('Unexpected temporary directory')
+                        shutil.rmtree(generated)
+                    else:
+                        generated.unlink()
+            report['source'] = {k:v for k,v in report['source'].items() if k != 'path'}
+            report['stems'] = {}
+            report['audioCleared'] = True
         report['elapsedSeconds'] = round(time.monotonic() - started, 2)
         (job / 'report.json').write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding='utf-8')
         emit('complete', report=str(job / 'report.json'), elapsedSeconds=report['elapsedSeconds'])

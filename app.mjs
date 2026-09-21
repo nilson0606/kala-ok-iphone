@@ -1,6 +1,7 @@
 import { youtubeId, noteOf, detectPitch, playerResponse, alignedTime } from './audio.mjs';
+import { createKaraokeSession } from './session.mjs';
 const $ = id => document.getElementById(id);
-let player, apiPromise, stream, context, analyser, samples, micTimer;
+let player, playerReady, apiPromise, stream, context, analyser, samples, micTimer;
 let generation = 0, history = [], beatTimer, beatStart, probeController;
 const supported = window.isSecureContext && !!navigator.mediaDevices?.getUserMedia;
 $('environment').textContent = supported ? '桌機收音環境就緒。可測試麥克風與播放器；未取得歌曲基準前不計分。' : '無法開啟麥克風。請用桌機 Chrome／Edge 開啟 HTTPS 網址，並確認瀏覽器有收音權限。';
@@ -20,26 +21,32 @@ function loadAPI() {
   });
   return apiPromise;
 }
-$('song-form').addEventListener('submit', async e => {
-  e.preventDefault();
+async function loadVideo(e) {
+  e?.preventDefault();
   const id = youtubeId($('url').value.trim());
   if (!id) return status('請輸入有效的 YouTube 影片網址。');
-  const button = e.currentTarget.querySelector('button'); button.disabled = true;
+  const button = $('song-form').querySelector('button'); button.disabled = true;
   status('正在載入 YouTube 播放器…');
   try {
+    await singing.changeSong(id);
     await loadAPI(); resetOffset();
     if (player) { player.cueVideoById(id); status('影片已切換，請在播放器內按播放。'); }
-    else player = new YT.Player('player', { width: '100%', height: '100%', videoId: id,
+    else { playerReady = new Promise((resolve, reject) => {
+      const readyTimeout = setTimeout(() => reject(new Error('播放器初始化逾時，請重新載入頁面。')), 20000);
+      player = new YT.Player('player', { width: '100%', height: '100%', videoId: id,
       playerVars: { playsinline: 1, origin: location.origin, autoplay: 0 },
       events: {
-        onReady: () => { $('video-placeholder').style.display = 'none'; status('請按影片上的播放按鈕。'); },
-        onStateChange: e => status(({ '-1': '尚未開始', 0: '影片結束', 1: '播放中', 2: '暫停', 3: '緩衝中', 5: '已就緒' }[e.data] || '播放器狀態變更') + ' · 尚無歌曲基準，不計分'),
+        onReady: () => { clearTimeout(readyTimeout); resolve(); $('video-placeholder').style.display = 'none'; status('請按影片上的播放按鈕。'); },
+        onStateChange: e => { status(({ '-1': '尚未開始', 0: '影片結束', 1: '播放中', 2: '暫停', 3: '緩衝中', 5: '已就緒' }[e.data] || '播放器狀態變更')); singing.playerState(e.data); },
         onAutoplayBlocked: () => status('請直接點影片上的播放按鈕。'),
-        onError: e => status(`影片無法播放（${e.data}）。可能禁止嵌入、已移除或需登入；請換影片。`)
+        onError: e => { clearTimeout(readyTimeout); reject(new Error(`影片無法播放（${e.data}），請換影片。`)); status(`影片無法播放（${e.data}）。可能禁止嵌入、已移除或需登入；請換影片。`); singing.playerState(2); }
       }
     });
-  } catch (err) { status(err.message); } finally { button.disabled = false; }
-});
+    }); }
+    await playerReady; return true;
+  } catch (err) { status(err.message); return false; } finally { button.disabled = false; }
+}
+$('song-form').addEventListener('submit', loadVideo);
 function log(text, cls = '') { const li = document.createElement('li'); li.textContent = text; li.className = cls; $('probe-log').append(li); }
 async function readLimited(response, max, partial = false) {
   if (!response.body) throw new Error('瀏覽器未提供可讀取的串流。');
@@ -97,7 +104,7 @@ async function stopMic(message = '收音已停止，聲音資料已釋放。') {
   $('mic-start').disabled = !supported; $('mic-stop').disabled = true;
   $('mic-badge').textContent = '麥克風未開啟'; $('mic-status').textContent = message;
   $('note').textContent = '—'; $('frequency').textContent = '等待收音'; $('cents').textContent = '單音音高 · 65–1000 Hz';
-  $('level').value = 0; $('level-text').textContent = '— dBFS'; $('device').textContent = '收音已停止。'; draw();
+  $('level').value = 0; $('level-text').textContent = '— dBFS'; $('device').textContent = '收音已停止。'; singing.micStopped(); draw();
 }
 $('mic-start').addEventListener('click', async () => {
   const token = ++generation; let pendingStream, pendingContext;
@@ -111,7 +118,7 @@ $('mic-start').addEventListener('click', async () => {
     stream = pendingStream; context = pendingContext;
     const source = context.createMediaStreamSource(stream);
     analyser = context.createAnalyser(); analyser.fftSize = 4096; source.connect(analyser);
-    samples = new Float32Array(analyser.fftSize); resetOffset();
+    samples = new Float32Array(analyser.fftSize);
     const track = stream.getAudioTracks()[0], settings = track.getSettings();
     await refreshInputs();
     if (token !== generation) return;
@@ -121,7 +128,7 @@ $('mic-start').addEventListener('click', async () => {
     track.onunmute = () => { $('mic-status').textContent = '收音已恢復。'; };
     context.onstatechange = () => { if (context?.state !== 'running') $('mic-status').textContent = '音訊處理暫停，請停止後重新開啟。'; };
     $('mic-badge').textContent = '● 收音中'; $('mic-status').textContent = '持續唱「啊」試試。不播放人聲、不保存錄音。';
-    micTimer = setInterval(readMic, 65);
+    micTimer = setInterval(readMic, 65); singing.micStarted();
   } catch (err) {
     pendingStream?.getTracks().forEach(t => t.stop());
     if (pendingContext && pendingContext.state !== 'closed') await pendingContext.close().catch(() => {});
@@ -136,6 +143,7 @@ function readMic() {
   const result = stream.getAudioTracks()[0]?.muted ? { hz: null, rms: 0 } : detectPitch(samples, context.sampleRate);
   const note = noteOf(result.hz), now = performance.now() / 1000;
   history.push({ time: now, midi: note?.midi ?? null }); history = history.filter(p => now - p.time <= 8);
+  if (player?.getCurrentTime) singing.sample(player.getCurrentTime() - Number($('offset').value) / 1000 - analyser.fftSize / (2 * context.sampleRate), result.hz);
   $('note').textContent = note?.name ?? '—'; $('frequency').textContent = result.hz ? `${result.hz.toFixed(1)} Hz` : '未偵測到穩定音高';
   $('cents').textContent = note ? `${note.cents >= 0 ? '+' : ''}${note.cents} cents · 相對最近音名，非歌曲分數` : '單音音高 · 65–1000 Hz';
   $('level').value = Math.min(1, result.rms * 4); $('level-text').textContent = result.rms > 0 ? `${Math.max(-90, 20 * Math.log10(result.rms)).toFixed(0)} dBFS` : '— dBFS'; draw();
@@ -155,6 +163,19 @@ function draw() {
     if (connected && p.time - last < .2) ctx.lineTo(x, py); else ctx.moveTo(x, py); connected = true; last = p.time;
   }
   ctx.stroke();
+  const reference = singing.reference();
+  if (reference && player?.getCurrentTime) {
+    const time = player.getCurrentTime() - Number($('offset').value) / 1000;
+    ctx.strokeStyle = '#90cbef'; ctx.lineWidth = 1.5; ctx.beginPath(); let linked = false;
+    for (let x = 28; x <= w; x += 2) {
+      const t = time - 8 * (1 - (x - 28) / (w - 28));
+      const note = noteOf(reference.frames[Math.floor(t / reference.step)]);
+      if (!note) { linked = false; continue; }
+      const py = Math.max(12, Math.min(h - 12, y(note.midi)));
+      if (linked) ctx.lineTo(x, py); else ctx.moveTo(x, py); linked = true;
+    }
+    ctx.stroke();
+  }
 }
 new ResizeObserver(draw).observe($('pitch-chart'));
 function stopBeats() { clearInterval(beatTimer); beatTimer = null; $('beat-toggle').textContent = '啟動節拍燈'; [...$('beats').children].forEach(d => d.classList.remove('active')); }
@@ -190,3 +211,35 @@ async function refreshInputs() {
 $('input-device').addEventListener('change', () => {
   resetOffset(); stopMic('已切換麥克風，補償已歸零。請按開啟麥克風使用新裝置。');
 });
+
+const localToolNames = { python: 'Python 環境', node: 'Node.js 22+', ffmpeg: 'FFmpeg', ffprobe: 'ffprobe', ytDlp: 'yt-dlp', demucs: 'Demucs', torch: 'PyTorch', torchaudio: 'TorchAudio', soundfile: 'SoundFile' };
+$('local-check').addEventListener('click', async () => {
+  const button = $('local-check'), panel = document.querySelector('.local-tools');
+  button.disabled = true; panel.dataset.state = 'checking';
+  $('local-status').textContent = '正在檢查這台電腦的本機工具…';
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch('http://127.0.0.1:4174/health', { signal: controller.signal, cache: 'no-store', credentials: 'omit' });
+    if (!response.ok) throw new Error('本機工具回應失敗。');
+    const result = await response.json();
+    if (result.app !== 'karaoke-local-helper' || result.version !== 1 || typeof result.checks !== 'object' || !result.checks) throw new Error('本機工具版本不相容，請重新下載工具包。');
+    const missing = Object.entries(localToolNames).filter(([key]) => result.checks[key] !== true).map(([, name]) => name);
+    if (missing.length || !result.ready) {
+      panel.dataset.state = 'warning'; $('install-guide').open = true;
+      $('local-status').textContent = '已連線，但本機安裝尚未完整。';
+      $('local-detail').textContent = '缺少或無法使用：' + (missing.join('、') || '請重新執行安裝腳本') + '。請參考下方安裝指引。';
+    } else {
+      panel.dataset.state = 'ready';
+      $('local-status').textContent = '✓ 本機工具已啟動，音訊處理環境已就緒。';
+      $('local-detail').textContent = 'yt-dlp、FFmpeg 與 Demucs 已找到。音訊在你的電腦處理；目前此按鈕只檢查環境，不會下載或錄音。';
+    }
+  } catch (error) {
+    panel.dataset.state = 'warning'; $('install-guide').open = true;
+    $('local-status').textContent = '尚未連上本機工具，無法判定是否已安裝。';
+    $('local-detail').textContent = error.name === 'AbortError' ? '連線逾時。若工具已安裝，請啟動 start-local.ps1，並允許瀏覽器的本機網路存取後重試。' : error instanceof TypeError ? '可能尚未啟動、尚未安裝，或瀏覽器阻擋本機連線。已安裝者請先執行 start-local.ps1；首次使用請看安裝指引。' : error.message;
+  } finally { clearTimeout(timer); button.disabled = false; }
+});
+
+const singing = createKaraokeSession({ player: () => player, micReady: () => !!stream && context?.state === 'running', stopMic: () => stopMic(), stopBeats, loadVideo: () => loadVideo() });
+
+window.addEventListener('pageshow', e => { if (e.persisted) location.reload(); });

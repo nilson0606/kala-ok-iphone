@@ -6,7 +6,7 @@ test('complete accurate take scores 100; no singing scores zero', () => {
   const take = new ScoringTake(reference());
   assert.equal(take.result().score, 0);
   for (let i = 0; i < 100; i++) take.sample(i * .1 + .01, 440);
-  assert.deepEqual(take.result(), { score: 100, pitch: 100, coverage: 100, referenceSeconds: 10, sampledSeconds: 10 });
+  assert.deepEqual(take.result(), { score: 100, pitch: 100, rhythm: 100, coverage: 100, referenceSeconds: 10, sampledSeconds: 10 });
 });
 test('one correct note and repeated frames cannot inflate score', () => {
   const take = new ScoringTake(reference());
@@ -20,7 +20,7 @@ test('octave errors lose pitch points, silence and rests are distinct', () => {
   const take = new ScoringTake(ref);
   for (let i = 0; i < 100; i++) take.sample(i * .1 + .01, 880);
   assert.equal(take.result().pitch, 0); assert.equal(take.result().coverage, 100);
-  assert.equal(take.result().score, 30);
+  assert.equal(take.result().score, 15);
   for (let i = 0; i < 100; i++) take.sample(i * .1 + .01, null);
   assert.equal(take.result().score, 0);
 });
@@ -29,4 +29,30 @@ test('reject corrupted or empty reference, keep only title and score in history'
   assert.throws(() => validateReference({ ...reference(), frames: [Infinity] }));
   assert.throws(() => validateReference({ ...reference(), step: -1 }));
   assert.deepEqual(savedResult('Song', 87.2), { title: 'Song', score: 87 });
+});
+
+
+test('optional octave tolerance accepts both octaves but rejects another scale note', () => {
+  for (const hz of [220, 440, 880]) {
+    const take = new ScoringTake(reference(), { allowOctave: true });
+    for (let i = 0; i < 100; i++) take.sample(i * .1 + .01, hz);
+    assert.equal(take.result().score, 100);
+  }
+  const wrong = new ScoringTake(reference(), { allowOctave: true });
+  for (let i = 0; i < 100; i++) wrong.sample(i * .1 + .01, 261.6256);
+  assert.equal(wrong.result().pitch, 0);
+});
+
+test('late melody loses rhythm credit; measured compensation restores it', () => {
+  const ref = reference(); ref.frames = Array.from({ length: 100 }, (_, i) => i % 20 < 5 ? null : [440, 523.251, 659.255, 493.883, 587.33][Math.floor(i / 20)]);
+  const correct = new ScoringTake(ref), late = new ScoringTake(ref), compensated = new ScoringTake(ref);
+  for (let i = 0; i < 100; i++) {
+    correct.sample(i * .1 + .01, ref.frames[i]);
+    late.sample(i * .1 + .31, ref.frames[i]);
+    compensated.sample((i * .1 + .31) - .3, ref.frames[i]);
+  }
+  assert.equal(correct.result().score, 100);
+  assert.ok(late.result().rhythm < 50);
+  assert.ok(late.result().score < correct.result().score);
+  assert.equal(compensated.result().score, 100);
 });

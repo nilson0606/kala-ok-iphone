@@ -36,6 +36,7 @@ try {
   assert.equal(await page.locator('#beats .active').count(), 1);
   await page.getByRole('button', { name: '停止節拍燈' }).click();
   await page.locator('#url').fill('https://www.youtube.com/watch?v=M7lc1UVf-VE');
+  await page.getByText('進階：純瀏覽器音訊存取診斷', { exact: true }).click();
   await page.getByRole('button', { name: '測試此網址的音訊存取' }).click();
   await page.waitForFunction(() => !document.querySelector('#probe').disabled, { timeout: 20000 });
   console.log('Direct YouTube access:', await page.locator('#probe-log').innerText());

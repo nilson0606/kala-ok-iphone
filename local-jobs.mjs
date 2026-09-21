@@ -1,0 +1,132 @@
+import { randomBytes, randomUUID } from 'node:crypto';
+import { spawn, execFile } from 'node:child_process';
+import { readFile, rm, mkdir, readdir, stat } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { validateReference } from './scoring.mjs';
+const root = fileURLToPath(new URL('./', import.meta.url));
+const jobsRoot = path.join(root, '.runtime', 'jobs');
+const python = path.join(root, '.runtime', 'venv', 'Scripts', 'python.exe');
+const token = randomBytes(32).toString('hex');
+const jobs = new Map();
+const json = (res, code, value) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
+async function body(req) {
+  let text = '';
+  for await (const chunk of req) { text += chunk; if (text.length > 4096) throw new Error('Request too large'); }
+  return JSON.parse(text);
+}
+async function stopChild(child) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  if (process.platform === 'win32') await new Promise(resolve => execFile('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true }, resolve));
+  else child.kill('SIGTERM');
+}
+async function erase(job) {
+  if (!job) return;
+  job.deleted = true; clearTimeout(job.timeout);
+  await stopChild(job.child);
+  job.reference = null;
+  const dir = path.resolve(jobsRoot, job.id);
+  if (/^[a-f0-9]{32}$/.test(job.id) && path.dirname(dir) === path.resolve(jobsRoot)) await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  jobs.delete(job.id);
+}
+function summary(job) {
+  return { id: job.id, stage: job.stage, message: job.message, ready: !!job.reference,
+    title: job.reference?.title, duration: job.reference?.duration, bpm: job.reference?.bpm,
+    voicedSeconds: job.reference?.voicedSeconds, audioCleared: !!job.reference };
+}
+async function start(videoId, seconds) {
+  const id = randomUUID().replaceAll('-', '');
+  const job = { id, stage: 'starting', message: '啟動本機工作…', updated: Date.now(), reference: null, deleted: false };
+  jobs.set(id, job);
+  const args = [path.join(root, 'tools', 'audio_pipeline.py'), '--url', `https://www.youtube.com/watch?v=${videoId}`, '--seconds', String(seconds), '--separate', '--reference', '--job-id', id];
+  const child = spawn(python, args, { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  job.child = child;
+  let pending = '', stderr = '', events = Promise.resolve();
+  const names = { download: '在本機取得 YouTube 音訊…', validated: '格式與完整解碼已確認。', separating: '在本機分離人聲與伴奏…', stem_validated: '分離音軌已驗證。', reference: '建立旋律與節拍基準…' };
+  async function event(line) {
+    if (job.deleted) return;
+    let data; try { data = JSON.parse(line); } catch { return; }
+    job.updated = Date.now();
+    if (names[data.stage]) { job.stage = data.stage; job.message = names[data.stage]; }
+    if (data.stage === 'failed') { job.stage = 'failed'; job.message = String(data.message || '處理失敗').slice(-1000); }
+    if (data.stage === 'complete') {
+      try {
+        const value = JSON.parse(await readFile(path.join(jobsRoot, id, 'reference.json'), 'utf8'));
+        const validated = validateReference(value);
+        if (validated.videoId !== videoId || !Number.isFinite(value.duration) || value.duration <= 0 || value.duration > 905) throw new Error('Invalid reference');
+        const beats = Array.isArray(value.beats) ? value.beats.filter(t => Number.isFinite(t) && t >= 0 && t <= value.duration).sort((a,b)=>a-b) : [];
+        job.reference = { ...validated, duration: value.duration, bpm: Number.isFinite(value.bpm) ? value.bpm : null, beats, voicedSeconds: value.voicedSeconds, quality: 'experimental-separated-vocals' };
+        job.stage = 'ready'; job.message = '基準已就緒，暫存音檔已清除。';
+        // Reference is held only in helper memory; remove the remaining JSON files too.
+        const dir = path.resolve(jobsRoot, id);
+        if (path.dirname(dir) === path.resolve(jobsRoot)) await rm(dir, { recursive: true, force: true });
+      } catch { job.stage = 'failed'; job.message = '旋律基準無效，請換一首主唱清楚的歌曲。'; }
+    }
+  }
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', chunk => {
+    pending += chunk.toString('utf8');
+    const lines = pending.split(/\r?\n/); pending = lines.pop();
+    for (const line of lines) events = events.then(() => event(line));
+  });
+  child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-1000); });
+  child.on('error', () => { job.stage = 'failed'; job.message = '無法啟動本機 Python。請重新執行安裝腳本。'; });
+  child.on('close', async code => {
+    if (pending.trim()) events = events.then(() => event(pending));
+    await events; clearTimeout(job.timeout);
+    if (job.deleted) return;
+    if (job.stage !== 'ready' && job.stage !== 'failed') { job.stage = 'failed'; job.message = `本機處理未完成（${code}）。請確認安裝與網路，或換另一支影片。`; }
+    if (job.stage === 'failed') {
+      const dir = path.resolve(jobsRoot, id);
+      if (path.dirname(dir) === path.resolve(jobsRoot)) await rm(dir, { recursive: true, force: true, maxRetries: 5 }).catch(() => {});
+    }
+    job.updated = Date.now();
+  });
+  job.timeout = setTimeout(async () => { job.stage = 'failed'; job.message = '本機處理超過 30 分鐘，已停止。'; await erase(job).catch(() => {}); }, 30 * 60000);
+  job.timeout.unref();
+  return job;
+}
+export async function handleLocalJobs(req, res) {
+  if (req.url === '/session' && req.method === 'GET') { json(res, 200, { token }); return true; }
+  if (!req.url.startsWith('/jobs') && req.url !== '/shutdown') return false;
+  if (req.headers['x-karaoke-token'] !== token) { json(res, 403, { error: 'Session token required' }); return true; }
+  if (req.url === '/shutdown' && req.method === 'POST') {
+    await clearAllJobs(); json(res, 200, { stopped: true });
+    setImmediate(() => process.emit('SIGTERM')); return true;
+  }
+  if (req.url === '/jobs' && req.method === 'POST') {
+    try {
+      const data = await body(req);
+      if (!/^[\w-]{11}$/.test(data.videoId || '') || ![0, 15, 30, 60].includes(data.seconds)) { json(res, 400, { error: '影片網址或片段長度無效。' }); return true; }
+      if ([...jobs.values()].some(j => !['ready','failed'].includes(j.stage))) { json(res, 409, { error: '已有歌曲正在處理，請先取消或等待完成。' }); return true; }
+      const job = await start(data.videoId, data.seconds); json(res, 202, summary(job));
+    } catch { json(res, 400, { error: '本機工作請求無效。' }); }
+    return true;
+  }
+  const match = /^\/jobs\/([a-f0-9]{32})(\/reference)?$/.exec(req.url);
+  const job = match && jobs.get(match[1]);
+  if (!job) { json(res, 404, { error: '工作已清除或不存在，請重新準備歌曲。' }); return true; }
+  job.updated = Date.now();
+  if (req.method === 'DELETE' && !match[2]) { await erase(job); json(res, 200, { cleared: true }); }
+  else if (req.method === 'GET' && match[2]) { if (job.reference) json(res, 200, job.reference); else json(res, 409, { error: '基準尚未就緒。' }); }
+  else if (req.method === 'GET') json(res, 200, summary(job));
+  else json(res, 405, { error: 'Unsupported method' });
+  return true;
+}
+// Abrupt browser closure cannot always send DELETE. Bound every inactive job's lifetime.
+setInterval(() => {
+  for (const job of jobs.values()) if (Date.now() - job.updated > 15 * 60000) erase(job).catch(() => {});
+}, 60000).unref();
+export async function clearAllJobs() { await Promise.allSettled([...jobs.values()].map(erase)); }
+export async function clearStaleJobs() {
+  await mkdir(jobsRoot, { recursive: true });
+  for (const name of await readdir(jobsRoot)) {
+    if (!/^[a-f0-9]{32}$/.test(name) || jobs.has(name)) continue;
+    const dir = path.resolve(jobsRoot, name);
+    if (path.dirname(dir) !== path.resolve(jobsRoot)) continue;
+    const info = await stat(dir);
+    if (Date.now() - info.mtimeMs > 15 * 60000) await rm(dir, { recursive: true, force: true });
+  }
+}
+
+setInterval(() => clearStaleJobs().catch(() => {}), 60000).unref();

@@ -30,6 +30,6 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Could not install audio tools.' }
     & $taskPython -c 'import torch, torchaudio, demucs, yt_dlp, soundfile; print("Local audio environment ready. CPU:", torch.__version__)'
     if ($LASTEXITCODE -ne 0) { throw 'Audio environment verification failed.' }
-    Write-Host 'Ready. Run .\run-local-audio.ps1 -Url YOUR_YOUTUBE_URL'
+    Write-Host 'Ready. Run .\start-local.ps1 to open the web app.'
     Write-Host 'Model weights are downloaded on the first separation and kept in .runtime/models.'
 } finally { Pop-Location }
