@@ -6,3 +6,9 @@ _site/
 .env.*
 *.pem
 *.key
+
+.runtime/
+.venv/
+
+__pycache__/
+*.pyc

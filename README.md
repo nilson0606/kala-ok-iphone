@@ -51,4 +51,35 @@ npm test
 
 ## 桌機優先開發（原型 02）
 
-先使用桌機 Edge／Chrome。麥克風授權後可選擇輸入裝置；切換會停止收音並重設時間補償。新 scoring.mjs 是尚未接入介面的實驗評分核心，需匹配影片 ID 的旋律參考；暫定音準 70%、演唱覆蓋率 30%，不是節奏評分。未唱與未完成的段落保留在分母，禁止重複採樣累加分數。沒有有效旋律基準時，網頁仍不給分。本機輔助工具／純網頁分頁音訊方案尚待確認，尚未安裝額外音訊工具。
+先使用桌機 Edge／Chrome。麥克風授權後可選擇輸入裝置；切換會停止收音並重設時間補償。新 scoring.mjs 是尚未接入介面的實驗評分核心，需匹配影片 ID 的旋律參考；暫定音準 70%、演唱覆蓋率 30%，不是節奏評分。未唱與未完成的段落保留在分母，禁止重複採樣累加分數。沒有有效旋律基準時，網頁仍不給分。已選擇本機 yt-dlp 與 Demucs 路徑，詳見下方。
+
+
+## 本機取得音訊與人聲分離（已實測）
+
+GitHub Pages 只提供網頁。yt-dlp、FFmpeg、Demucs 都在使用者電腦執行；音訊不上傳。這一階段的命令列流程已完成，尚未與網頁按鈕連接，也尚未建立歌曲基準。
+
+需要 Node.js 22+、Python 3.12、FFmpeg/ffprobe（在 PATH）。第一次安裝：
+
+```powershell
+.\setup-local.ps1
+# 若沒有 Python Launcher，可指定 Python 3.12：
+.\setup-local.ps1 -PythonPath 'C:\path\to\python.exe'
+```
+
+先測前 15 秒，預設會取得音訊、完整解碼驗證、分離並驗證兩軌：
+
+```powershell
+.\run-local-audio.ps1 -Url 'https://www.youtube.com/watch?v=VIDEO_ID'
+# 僅取得音訊
+.\run-local-audio.ps1 -Url 'https://www.youtube.com/watch?v=VIDEO_ID' -DownloadOnly
+# 完整歌曲，上限 15 分鐘
+.\run-local-audio.ps1 -Url 'https://www.youtube.com/watch?v=VIDEO_ID' -Seconds 0
+```
+
+工具位於 `.runtime/venv`，模型位於 `.runtime/models`，每次輸出位於 `.runtime/jobs/<id>`。三者不會提交到 GitHub 或 Pages。重新開機不會刪除這些檔案；重灌、系統重設或搬到新電腦可能須重跑 setup。模型權重可保留重用，不必每次重新下載。Python 虛擬環境依賴基礎 Python 路徑，因此即使 D 槽保留，重灌後仍應重建環境。
+
+成功測試的音訊目前暫留本機供檢查；失敗的工作會清除該工作產生的檔案。正式評分流程需在結束後清除成功工作的音訊與基準，只保存歌名及分數；這個生命週期尚未串接。程式不刪除 `--input` 指定的原始檔案。
+
+實測：YouTube 官方播放器示範影片的前 15 秒取得 MP3（48 kHz、雙聲道、15.024 秒），FFmpeg 完整解碼成功；CPU htdemucs 分成 vocals.wav 與 no_vocals.wav，兩者均為 44.1 kHz、雙聲道、14.993515 秒，可完整解碼。驗證與分離約 15.94 秒（這台電腦、此次短片段）；不能外推完整歌曲耗時，也不代表已驗證真實歌曲的分離品質或評分準確度。
+
+Python URL 測試：`.runtime/venv/Scripts/python.exe tools/test_audio_pipeline.py`。
