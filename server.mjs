@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
-const files = new Map([['/calibration.mjs', ['calibration.mjs', 'text/javascript']],['/', ['index.html', 'text/html']], ['/index.html', ['index.html', 'text/html']], ['/style.css', ['style.css', 'text/css']], ['/app.mjs', ['app.mjs', 'text/javascript']], ['/audio.mjs', ['audio.mjs', 'text/javascript']], ['/session.mjs', ['session.mjs', 'text/javascript']], ['/scoring.mjs', ['scoring.mjs', 'text/javascript']]]);
+const files = new Map([['/navigation.mjs', ['navigation.mjs', 'text/javascript']],['/calibration.mjs', ['calibration.mjs', 'text/javascript']],['/', ['index.html', 'text/html']], ['/index.html', ['index.html', 'text/html']], ['/style.css', ['style.css', 'text/css']], ['/app.mjs', ['app.mjs', 'text/javascript']], ['/audio.mjs', ['audio.mjs', 'text/javascript']], ['/session.mjs', ['session.mjs', 'text/javascript']], ['/scoring.mjs', ['scoring.mjs', 'text/javascript']]]);
 const server = http.createServer(async (req, res) => {
   if (!['GET', 'HEAD'].includes(req.method)) { res.writeHead(405); res.end(); return; }
   const route = files.get(new URL(req.url, 'http://localhost').pathname);

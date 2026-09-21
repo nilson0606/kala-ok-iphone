@@ -10,9 +10,12 @@
 <body>
 <main>
   <header><a href="./" class="brand"><span class="brand-icon">♪</span> 唱一下 <small>LOCAL LAB</small></a><span class="pill">本機分析 · 不存錄音</span></header>
+  <nav class="section-nav" aria-label="頁面區段導覽">
+    <a href="#player-section">播放器</a><a href="#prepare-section">歌曲準備</a><a href="#library-panel">歌曲庫</a><a href="#voice-section">收音</a><a href="#timing-section">延遲</a><a href="#score-section">評分／結算</a><a href="#local-section">本機設定</a>
+  </nav>
   <section class="intro"><p class="eyebrow">DESKTOP KARAOKE / 本機練唱版</p><h1>看著唱。<br><span>看見你的聲音。</span></h1><p>貼上歌曲，讓本機準備旋律基準。戴上耳機，看著 YouTube 唱，唱完留下歌名與分數。</p></section>
   <div id="environment" class="notice" role="status"></div>
-  <section class="card local-tools" aria-labelledby="local-heading">
+  <section id="local-section" tabindex="-1" class="card local-tools" aria-labelledby="local-heading">
     <div class="local-summary"><div><p class="eyebrow">只在你的電腦處理音訊</p><h2 id="local-heading">先確認本機工具</h2><p id="local-status" class="help" role="status">尚未檢查。第一次使用請安裝；已安裝則啟動本機工具。</p></div><button id="local-check" type="button">檢查本機工具</button></div>
     <p id="local-detail" class="help">GitHub Pages 只提供網頁。下載、分離與後續評分在你的電腦執行。</p>
     <details id="install-guide"><summary>安裝／啟動說明（Windows）</summary>
@@ -33,14 +36,15 @@
     <p class="footnote">第一次準備歌曲需要下載模型；之後會重用本機模型。歌曲音訊不會上傳到雲端。</p>
   </section>
   <div class="layout">
-    <section class="card source-card">
+    <section id="player-section" tabindex="-1" class="card source-card">
       <div class="section-top"><h2><span class="step">01</span> 放一首歌</h2><span class="subtle">YouTube 原生播放</span></div>
       <form id="song-form"><label for="url">歌曲影片網址</label><div class="input-row"><input id="url" type="url" placeholder="https://www.youtube.com/watch?v=…" required autocomplete="off"><button type="submit">載入影片</button></div></form>
       <p id="player-status" class="status" role="status">貼上網址後，影片會在這裡播放。</p>
       <div class="video-shell"><div id="video-placeholder"><span>▶</span><p>你的下一首歌</p><small>播放器與麥克風分別啟動</small></div><div id="player"></div></div>
       <div class="clock-row"><span>播放器時間 <b id="player-time">—</b></span><span>補償後位置 <b id="aligned-time">—</b></span></div>
-      <div class="divider"></div>
-      <h3>準備這首歌</h3>
+    </section>
+    <section id="prepare-section" tabindex="-1" class="card prepare-card">
+      <div class="section-top"><h2>準備這首歌</h2><span class="subtle">本機分析與歌曲庫</span></div>
       <label for="clip-seconds">分析範圍</label><select id="clip-seconds"><option value="0">完整歌曲（最長 15 分鐘）</option><option value="15">先試前 15 秒</option><option value="30">先試前 30 秒</option><option value="60">先試前 60 秒</option></select>
       <label class="check-option"><input id="keep-preview" type="checkbox"> 保留分離音軌，供本機試聽（選用）</label>
       <p class="help">歌曲基準會自動保存在這台電腦；同一影片與分析範圍可直接重用。勾選試聽才額外保留人聲／伴奏音檔。</p>
@@ -57,7 +61,7 @@
         <div class="button-row"><button id="preview-vocals" class="secondary" disabled>試聽人聲</button><button id="preview-accompaniment" class="secondary" disabled>試聽伴奏</button></div>
         <audio id="stem-audio" controls preload="none"></audio><p id="preview-status" class="status">尚未載入試聽音軌。</p>
       </details>
-      <details id="library-panel"><summary>本機歌單 · 點一首就載入</summary>
+      <details id="library-panel" tabindex="-1"><summary>本機歌單 · 點一首就載入</summary>
         <button id="library-refresh" class="secondary">重新整理歌曲庫</button><p id="library-status" class="status">啟動本機工具後可查看已保存歌曲。</p><ul id="library-list" class="library-list"></ul>
         <p class="footnote">刪除會移除這首歌的本機基準與試聽音軌，不影響演唱成績。完整歌曲與不同長度的片段分開保存。</p>
       </details>
@@ -68,7 +72,7 @@
       <p class="footnote">通過存取測試仍不代表已完成音訊解碼、人聲分離或旋律擷取。</p>
       </details>
     </section>
-    <section class="card voice-card">
+    <section id="voice-section" tabindex="-1" class="card voice-card">
       <div class="section-top"><h2><span class="step">02</span> 試試你的聲音</h2><span id="mic-badge" class="badge">麥克風未開啟</span></div>
       <label for="input-device">收音麥克風</label><select id="input-device"><option value="">系統預設麥克風</option></select><p class="help">第一次允許收音後可選裝置。建議先用有線耳機或 USB 麥克風測試。</p>
       <div class="pitch-value"><span id="note">—</span><div><strong id="frequency">等待收音</strong><small id="cents">單音音高 · 65–1000 Hz</small></div></div>
@@ -79,7 +83,7 @@
       <p id="mic-status" class="status" role="status">請先戴耳機，降低伴奏被麥克風收到的機會。</p>
       <details><summary>收音裝置與狀態</summary><pre id="device">授權後才會顯示裝置資訊。</pre></details>
     </section>
-    <section class="card timing-card">
+    <section id="timing-section" tabindex="-1" class="card timing-card">
       <div class="section-top"><h2><span class="step">03</span> 看節拍，調延遲</h2><span class="subtle">手動測試工具</span></div>
       <div class="timing-grid"><div><label for="bpm">手動節拍速度</label><div class="bpm-row"><input id="bpm" type="number" min="40" max="220" step="1" value="90"><span>BPM</span><button id="beat-toggle" class="secondary" type="button">啟動節拍燈</button></div><div id="beats" class="beats" aria-label="四拍節拍燈"><i></i><i></i><i></i><i></i></div><p id="beat-note" class="help">手動節拍燈；基準建立後，若能辨識節奏，改用自動估計拍點。</p></div>
       <div><label for="offset">手動時間補償 <output id="offset-value">0 ms</output></label><input id="offset" type="range" min="-500" max="1000" step="10" value="0"><div class="range-label"><span>−500 ms</span><span>+1000 ms</span></div><p class="help">正值讓比對位置回到較早的歌曲時間。同時調整評分比對位置；不會消除耳機實際延遲。請先用有線裝置測試。</p></div></div>
@@ -95,7 +99,7 @@
       <div class="notice muted">藍牙、有線、USB 與電腦內建麥克風請分別測試。更換裝置後，補償值會歸零；系統不會把未知延遲當成 0。</div>
     </section>
   </div>
-  <section class="card score-card">
+  <section id="score-section" tabindex="-1" class="card score-card">
     <div class="section-top"><h2><span class="step">04</span> 開始唱，留下這次成績</h2><span class="subtle">練習評分</span></div>
     <p id="result-title" class="score-title">尚未選定歌曲</p>
     <label for="pitch-mode">音域比對</label><select id="pitch-mode"><option value="octave">允許高／低八度（適合不同音域）</option><option value="strict">嚴格原調（與原唱相同音高）</option></select><p class="help">放寬八度差不會改變 YouTube 伴奏。其他音高偏差仍會扣分；演唱開始後固定本次模式。</p>
@@ -111,5 +115,6 @@
   <footer><span>唱一下 / Local-first experiment</span><span>麥克風 → 本機音高分析 → 畫面</span></footer>
 </main>
 <script type="module" src="app.mjs"></script>
+<script type="module" src="navigation.mjs"></script>
 </body>
 </html>
