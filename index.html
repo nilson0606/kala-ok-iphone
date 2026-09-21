@@ -43,6 +43,17 @@
       <div class="video-shell"><div id="video-placeholder"><span>▶</span><p>你的下一首歌</p><small>播放器與麥克風分別啟動</small></div><div id="player"></div></div>
       <div class="clock-row"><span>播放器時間 <b id="player-time">—</b></span><span>補償後位置 <b id="aligned-time">—</b></span></div>
     </section>
+    <section id="voice-section" tabindex="-1" class="card voice-card">
+      <div class="section-top"><h2><span class="step">02</span> 試試你的聲音</h2><span id="mic-badge" class="badge">麥克風未開啟</span></div>
+      <label for="input-device">收音麥克風</label><select id="input-device"><option value="">系統預設麥克風</option></select><p class="help">第一次允許收音後可選裝置。建議先用有線耳機或 USB 麥克風測試。</p>
+      <div class="pitch-value"><span id="note">—</span><div><strong id="frequency">等待收音</strong><small id="cents">單音音高 · 65–1000 Hz</small></div></div>
+      <div class="level-label"><span>收音音量</span><span id="level-text">— dBFS</span></div><meter id="level" min="0" max="1" value="0" aria-label="麥克風音量"></meter>
+      <div class="graph"><div class="graph-heading"><span>你的音高 · 最近 8 秒</span><span class="legend"><i></i> 即時音高</span></div><canvas id="pitch-chart" aria-label="最近八秒的麥克風音高曲線"></canvas><p>綠線是你的音高；藍線是原唱旋律。允許八度差時，兩線不一定重疊。</p></div>
+      <div class="target-line">原唱音符 <strong id="target-note">—</strong><span id="live-feedback">等待歌曲基準</span></div>
+      <div class="button-row"><button id="mic-start" type="button">開啟麥克風</button><button id="mic-stop" class="secondary" type="button" disabled>停止收音</button></div>
+      <p id="mic-status" class="status" role="status">請先戴耳機，降低伴奏被麥克風收到的機會。</p>
+      <details><summary>收音裝置與狀態</summary><pre id="device">授權後才會顯示裝置資訊。</pre></details>
+    </section>
     <section id="prepare-section" tabindex="-1" class="card prepare-card">
       <div class="section-top"><h2>準備這首歌</h2><span class="subtle">本機分析與歌曲庫</span></div>
       <label for="clip-seconds">分析範圍</label><select id="clip-seconds"><option value="0">完整歌曲（最長 15 分鐘）</option><option value="15">先試前 15 秒</option><option value="30">先試前 30 秒</option><option value="60">先試前 60 秒</option></select>
@@ -71,17 +82,6 @@
       <ol id="probe-log" class="log" aria-live="polite"><li>尚未測試。可播放影片 ≠ 可讀取影片音訊。</li></ol>
       <p class="footnote">通過存取測試仍不代表已完成音訊解碼、人聲分離或旋律擷取。</p>
       </details>
-    </section>
-    <section id="voice-section" tabindex="-1" class="card voice-card">
-      <div class="section-top"><h2><span class="step">02</span> 試試你的聲音</h2><span id="mic-badge" class="badge">麥克風未開啟</span></div>
-      <label for="input-device">收音麥克風</label><select id="input-device"><option value="">系統預設麥克風</option></select><p class="help">第一次允許收音後可選裝置。建議先用有線耳機或 USB 麥克風測試。</p>
-      <div class="pitch-value"><span id="note">—</span><div><strong id="frequency">等待收音</strong><small id="cents">單音音高 · 65–1000 Hz</small></div></div>
-      <div class="level-label"><span>收音音量</span><span id="level-text">— dBFS</span></div><meter id="level" min="0" max="1" value="0" aria-label="麥克風音量"></meter>
-      <div class="graph"><div class="graph-heading"><span>你的音高 · 最近 8 秒</span><span class="legend"><i></i> 即時音高</span></div><canvas id="pitch-chart" aria-label="最近八秒的麥克風音高曲線"></canvas><p>綠線是你的音高；藍線是原唱旋律。允許八度差時，兩線不一定重疊。</p></div>
-      <div class="target-line">原唱音符 <strong id="target-note">—</strong><span id="live-feedback">等待歌曲基準</span></div>
-      <div class="button-row"><button id="mic-start" type="button">開啟麥克風</button><button id="mic-stop" class="secondary" type="button" disabled>停止收音</button></div>
-      <p id="mic-status" class="status" role="status">請先戴耳機，降低伴奏被麥克風收到的機會。</p>
-      <details><summary>收音裝置與狀態</summary><pre id="device">授權後才會顯示裝置資訊。</pre></details>
     </section>
     <section id="timing-section" tabindex="-1" class="card timing-card">
       <div class="section-top"><h2><span class="step">03</span> 看節拍，調延遲</h2><span class="subtle">手動測試工具</span></div>

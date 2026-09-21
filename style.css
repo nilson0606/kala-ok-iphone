@@ -25,9 +25,14 @@ main{max-width:1360px}
 .section-nav a{flex-shrink:0;text-decoration:none;color:var(--soft);font-size:13px;font-weight:600;line-height:20px;padding:12px 16px;border:1px solid transparent;border-radius:9px}
 .section-nav a:hover,.section-nav a:focus-visible{color:var(--accent);background:#252e21;border-color:#526143}
 .section-nav a[href="#score-section"]{color:var(--accent);background:#252e21}
-.source-card{grid-column:1/-1}
+.layout{grid-template-columns:minmax(0,2fr) minmax(340px,1fr)}
+.prepare-card{grid-column:1/-1}
+.voice-card .section-top{flex-wrap:wrap}
+.voice-card .pitch-value{gap:14px}
 .source-card .video-shell{width:100%;max-width:1040px;margin-inline:auto;aspect-ratio:16/9;min-height:0}
 .source-card .clock-row{max-width:1040px;margin-inline:auto}
 .card[tabindex]:focus,#library-panel:focus{outline:none}
 .card:target,#library-panel:target{border-color:#88a25f}
 @media(max-width:760px){html{scroll-padding-top:80px}.section-nav{gap:2px;margin-inline:-16px;padding:10px 16px}.section-nav a{font-size:12px;padding:12px}.source-card{grid-column:auto}}
+
+@media(max-width:999px){.layout{grid-template-columns:minmax(0,1fr)}}
