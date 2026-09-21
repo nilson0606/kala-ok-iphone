@@ -24,10 +24,10 @@ try {
   const page = await ctx.newPage(), errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('http://localhost:4173/');
-  assert.match(await page.locator('#environment').innerText(), /可要求/);
+  assert.match(await page.locator('#environment').innerText(), /桌機收音環境就緒/);
   await page.getByRole('button', { name: '開啟麥克風', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('#note').textContent === 'A4');
-  console.log('Synthetic A4 microphone:', await page.locator('#frequency').innerText());
+  console.log('Synthetic A4 microphone:', await page.locator('#frequency').innerText()); assert.ok(await page.locator('#input-device option').count() >= 1);
   await page.screenshot({ path: path.join(root, 'test-results/desktop.png'), fullPage: true });
   await page.getByRole('button', { name: '停止收音', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('#mic-stop').disabled);

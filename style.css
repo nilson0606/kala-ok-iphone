@@ -4,3 +4,5 @@
 @media(max-width:760px){main{padding:20px 16px}.brand{font-size:20px}.brand small{display:none}.pill{font-size:10px}.intro{padding-top:24px}.layout{grid-template-columns:1fr}.card{padding:20px}.timing-grid{grid-template-columns:1fr;gap:18px}.section-top{margin-bottom:20px}.input-row{flex-wrap:wrap}.input-row input{flex-basis:100%}.input-row button{width:100%}.video-shell{aspect-ratio:4/3}.pitch-value>span{font-size:68px}footer{flex-direction:column;gap:7px}.timing-card{grid-column:auto}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 
+
+select{width:100%;min-height:44px;background:#101611;color:var(--text);border:1px solid #45503f;border-radius:8px;padding:10px;font:inherit;font-size:14px}select:focus-visible{outline:2px solid var(--accent);outline-offset:3px}

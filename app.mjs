@@ -3,7 +3,7 @@ const $ = id => document.getElementById(id);
 let player, apiPromise, stream, context, analyser, samples, micTimer;
 let generation = 0, history = [], beatTimer, beatStart, probeController;
 const supported = window.isSecureContext && !!navigator.mediaDevices?.getUserMedia;
-$('environment').textContent = supported ? '可要求麥克風權限。iPhone 藍牙與 YouTube 音訊存取仍需真機測試。' : '無法開啟麥克風。iPhone 請用 Safari 開啟 HTTPS 網址；一般 HTTP 區網網址無法收音。';
+$('environment').textContent = supported ? '桌機收音環境就緒。可測試麥克風與播放器；未取得歌曲基準前不計分。' : '無法開啟麥克風。請用桌機 Chrome／Edge 開啟 HTTPS 網址，並確認瀏覽器有收音權限。';
 $('environment').classList.toggle('error', !supported);
 $('mic-start').disabled = !supported;
 const status = text => { $('player-status').textContent = text; };
@@ -105,7 +105,7 @@ $('mic-start').addEventListener('click', async () => {
   try {
     pendingContext = new AudioContext({ latencyHint: 'interactive' });
     const resumed = pendingContext.resume().catch(() => {});
-    pendingStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }, video: false });
+    pendingStream = await navigator.mediaDevices.getUserMedia({ audio: { ...($('input-device').value ? { deviceId: { exact: $('input-device').value } } : {}), echoCancellation: false, noiseSuppression: false, autoGainControl: false }, video: false });
     await resumed;
     if (token !== generation) { pendingStream.getTracks().forEach(t => t.stop()); await pendingContext.close(); return; }
     stream = pendingStream; context = pendingContext;
@@ -113,6 +113,8 @@ $('mic-start').addEventListener('click', async () => {
     analyser = context.createAnalyser(); analyser.fftSize = 4096; source.connect(analyser);
     samples = new Float32Array(analyser.fftSize); resetOffset();
     const track = stream.getAudioTracks()[0], settings = track.getSettings();
+    await refreshInputs();
+    if (token !== generation) return;
     $('device').textContent = `輸入：${track.label || '瀏覽器預設麥克風'}\n取樣率：${context.sampleRate} Hz\n輸入延遲：${latency(settings.latency)}\nWeb Audio 輸出延遲：${latency(context.outputLatency)}\n回音消除：${String(settings.echoCancellation ?? '未知')}\n\n輸出估計屬於本頁 AudioContext，不代表 YouTube 的延遲；不會自動填入補償值。`;
     track.onended = () => stopMic('麥克風中斷，請重新開啟。');
     track.onmute = () => { $('mic-status').textContent = '收音暫時中斷，目前音高不可用。'; };
@@ -124,7 +126,7 @@ $('mic-start').addEventListener('click', async () => {
     pendingStream?.getTracks().forEach(t => t.stop());
     if (pendingContext && pendingContext.state !== 'closed') await pendingContext.close().catch(() => {});
     if (token !== generation) return;
-    await stopMic(err.name === 'NotAllowedError' ? '麥克風未獲允許。請到 Safari 網站設定調整權限後再重試。' : err.name === 'NotFoundError' ? '找不到麥克風，請檢查裝置。' : `收音失敗：${err.message}`);
+    await stopMic(err.name === 'NotAllowedError' ? '麥克風未獲允許。請點網址列的網站權限圖示，允許麥克風後再重試。' : err.name === 'NotFoundError' ? '找不到麥克風，請檢查裝置。' : `收音失敗：${err.message}`);
   }
 });
 $('mic-stop').addEventListener('click', () => stopMic());
@@ -173,3 +175,18 @@ setInterval(() => {
 navigator.mediaDevices?.addEventListener('devicechange', () => { resetOffset(); if (stream) stopMic('裝置已變更，補償已歸零。請重新開啟收音並校正。'); });
 function cleanup() { probeController?.abort(); stopBeats(); stopMic('頁面已離開前景，收音已停止。請重新開啟。'); }
 document.addEventListener('visibilitychange', () => { if (document.hidden) cleanup(); }); window.addEventListener('pagehide', cleanup);
+
+async function refreshInputs() {
+  const select = $('input-device'), previous = select.value;
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    select.replaceChildren(new Option('系統預設麥克風', ''));
+    for (const [i, d] of devices.filter(d => d.kind === 'audioinput').entries()) {
+      if (d.deviceId && d.deviceId !== 'default') select.append(new Option(d.label || `麥克風 ${i + 1}`, d.deviceId));
+    }
+    if ([...select.options].some(o => o.value === previous)) select.value = previous;
+  } catch { /* Device labels are optional; default recording remains available. */ }
+}
+$('input-device').addEventListener('change', () => {
+  resetOffset(); stopMic('已切換麥克風，補償已歸零。請按開啟麥克風使用新裝置。');
+});
