@@ -12,7 +12,7 @@ const python = path.join(root, '.runtime', 'venv', 'Scripts', 'python.exe');
 const token = randomBytes(32).toString('hex');
 const jobs = new Map();
 const location = new LibraryLocation(path.join(root, '.runtime'));
-let library = null, changingLocation = false;
+let library = null, changingLocation = false, folderPicker = null;
 async function currentLibrary() {
   if (!library) { const saved = await location.get(); if (saved.configured) library = new LocalLibrary(saved.path); }
   return library;
@@ -111,25 +111,32 @@ export async function handleLocalJobs(req, res) {
   if (req.url === '/session' && req.method === 'GET') { json(res, 200, { token, features: ['library', 'stem-preview', 'library-location'] }); return true; }
   if (!req.url.startsWith('/jobs') && !req.url.startsWith('/library') && req.url !== '/shutdown') return false;
   if (req.headers['x-karaoke-token'] !== token) { json(res, 403, { error: 'Session token required' }); return true; }
-  if (req.url === '/library/location' && req.method === 'GET') { json(res, 200, await location.get()); return true; }
+  if (req.url === '/library/location' && req.method === 'GET') { json(res, 200, { ...await location.get(), selectionPending: !!folderPicker }); return true; }
+  if (req.url === '/library/location/cancel' && req.method === 'POST') {
+    if (folderPicker) { folderPicker.cancelled = true; await stopChild(folderPicker.child); }
+    json(res, 200, { cancelled: true }); return true;
+  }
   if (['/library/location', '/library/location/pick'].includes(req.url) && req.method === 'POST') {
-    if (changingLocation || jobs.size) { json(res, 409, { error: '請先取消／卸載目前歌曲，再變更歌曲庫位置。' }); return true; }
+    if (changingLocation) { json(res, 409, { error: '資料夾選擇仍在等待。請完成選擇，或按「取消資料夾選擇」後重試。' }); return true; }
+    if (jobs.size) { json(res, 409, { error: '目前有歌曲載入中，請先按歌曲區的「取消／卸載」；不會刪除已保存的歌曲。' }); return true; }
     changingLocation = true;
     try {
       let selected;
       if (req.url.endsWith('/pick')) {
         if (process.platform !== 'win32') throw new Error('請在網頁輸入完整資料夾路徑。');
+        const picker = { cancelled: false, child: null }; folderPicker = picker;
         const saved = await location.get();
-        selected = await new Promise((resolve, reject) => execFile('powershell.exe', ['-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', path.join(root, 'tools', 'select-library-folder.ps1'), '-InitialPath', saved.path || saved.suggestedPath], { windowsHide: true, timeout: 180000, encoding: 'utf8' }, (error, stdout) => {
+        selected = picker.cancelled ? { cancelled: true } : await new Promise((resolve, reject) => { picker.child = execFile('powershell.exe', ['-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', path.join(root, 'tools', 'select-library-folder.ps1'), '-InitialPath', saved.path || saved.suggestedPath], { windowsHide: false, timeout: 60000, encoding: 'utf8' }, (error, stdout) => {
+          if (picker.cancelled) return resolve({ cancelled: true });
           if (error) return reject(new Error('資料夾選擇已逾時或無法開啟，請重試或直接輸入路徑。'));
           try { resolve(JSON.parse(stdout.replace(/^\uFEFF/, '').trim())); } catch { reject(new Error('無法讀取資料夾選擇結果。')); }
-        }));
+        }); });
       } else selected = await body(req);
       if (selected.cancelled) { json(res, 200, { ...await location.get(), cancelled: true }); return true; }
       const saved = await location.set(selected.path);
       library = new LocalLibrary(saved.path); json(res, 200, saved);
     } catch (error) { json(res, 400, { error: error.message }); }
-    finally { changingLocation = false; }
+    finally { folderPicker = null; changingLocation = false; }
     return true;
   }
   if (req.url.startsWith('/library') || (req.url === '/jobs' && req.method === 'POST')) {
@@ -184,7 +191,7 @@ export async function handleLocalJobs(req, res) {
 setInterval(() => {
   for (const job of jobs.values()) if (Date.now() - job.updated > 15 * 60000) erase(job).catch(() => {});
 }, 60000).unref();
-export async function clearAllJobs() { await Promise.allSettled([...jobs.values()].map(erase)); }
+export async function clearAllJobs() { if (folderPicker) { folderPicker.cancelled = true; await stopChild(folderPicker.child); } await Promise.allSettled([...jobs.values()].map(erase)); }
 export async function clearStaleJobs() {
   await mkdir(jobsRoot, { recursive: true });
   for (const name of await readdir(jobsRoot)) {

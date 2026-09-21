@@ -73,8 +73,10 @@ export function createKaraokeSession(options) {
   }
   function renderLocation(value) {
     libraryLocation = value;
+    $('library-cancel-pick').hidden = !value.selectionPending;
     if (document.activeElement !== $('library-path')) $('library-path').value = value.path || value.suggestedPath || '';
     $('library-location-status').textContent = value.configured ? `歌曲庫位置：${value.path}。已記住這台電腦的設定。` : value.existingLibrary ? '找到原有歌曲庫。請按「使用此資料夾」保留現有位置，或另外選擇。' : '第一次使用請先選擇或指定歌曲庫資料夾，再準備歌曲。';
+    if (value.selectionPending) $('library-location-status').textContent = '資料夾選擇仍在等待。可完成 Windows 選擇視窗，或按「取消資料夾選擇」。';
     controls();
   }
   async function chooseLocation(picker) {
@@ -84,13 +86,24 @@ export function createKaraokeSession(options) {
     try {
       await ensureSession();
       $('library-location-status').textContent = picker ? '請在這台電腦開啟的視窗中選擇資料夾…' : '正在保存歌曲庫位置…';
-      const value = await api(picker ? '/library/location/pick' : '/library/location', { method: 'POST', body: JSON.stringify(picker ? {} : { path: entered }) }, picker ? 190000 : 10000);
+      if (picker) $('library-cancel-pick').hidden = false;
+      const value = await api(picker ? '/library/location/pick' : '/library/location', { method: 'POST', body: JSON.stringify(picker ? {} : { path: entered }) }, picker ? 70000 : 10000);
       renderLocation(value);
       if (value.cancelled) $('library-location-status').textContent = '已取消選擇，歌曲庫位置未變更。';
       if (value.configured) await refreshLibrary();
     } catch (error) { $('library-location-status').textContent = '無法設定歌曲庫：' + error.message; }
     finally { locationBusy = false; controls(); }
   }
+  $('library-cancel-pick').addEventListener('click', async () => {
+    $('library-cancel-pick').disabled = true;
+    try {
+      if (!token) await ensureSession();
+      await api('/library/location/cancel', { method: 'POST', body: '{}' });
+      $('library-cancel-pick').hidden = true;
+      $('library-location-status').textContent = '已取消資料夾選擇；原歌曲庫與歌曲都保留，可重新選擇。';
+    } catch (error) { $('library-location-status').textContent = error.message; }
+    finally { $('library-cancel-pick').disabled = false; }
+  });
   $('library-choose').addEventListener('click', () => chooseLocation(true));
   $('library-use-path').addEventListener('click', () => chooseLocation(false));
   function stopPreview() {

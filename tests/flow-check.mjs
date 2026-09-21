@@ -35,12 +35,13 @@ try {
   });
   const page = await context.newPage(), errors = [], deleted = [];
   page.on('pageerror', error => errors.push(error.message));
-  let serial = 0, createDelay = 0, libraryConfigured = false;
+  let serial = 0, createDelay = 0, libraryConfigured = false, releasePicker, pickerPending = false;
   await page.route('http://127.0.0.1:4174/**', async route => {
     const request = route.request(), url = new URL(request.url());
     let value = {};
     if (url.pathname === '/session') value = { token: 'fixture-token', features: ['library', 'library-location'] };
-    else if (url.pathname === '/library/location/pick') value = { configured: libraryConfigured, cancelled: true, suggestedPath: 'C:/test-library' };
+    else if (url.pathname === '/library/location/pick') { pickerPending = true; await new Promise(resolve => { releasePicker = resolve; }); pickerPending = false; value = { configured: libraryConfigured, cancelled: true, suggestedPath: 'C:/test-library' }; }
+    else if (url.pathname === '/library/location/cancel') { releasePicker?.(); value = { cancelled: true }; }
     else if (url.pathname === '/library/location') { if (request.method() === 'POST') { assert.equal(request.postDataJSON().path, 'C:/test-library'); libraryConfigured = true; } value = { configured: libraryConfigured, path: libraryConfigured ? 'C:/test-library' : '', suggestedPath: 'C:/test-library' }; }
     else if (url.pathname === '/library') value = { songs: [] };
     else if (request.method() === 'DELETE') { deleted.push(url.pathname); value = { cleared: true }; }
@@ -54,7 +55,12 @@ try {
   await page.evaluate(() => window.dispatchEvent(new Event('local-tools-ready')));
   await page.waitForFunction(() => document.querySelector('#prepare-song').disabled);
   await page.locator('#library-choose').click();
-  await page.waitForFunction(() => document.querySelector('#library-location-status').textContent.includes('已取消選擇'));
+  await page.waitForFunction(() => !document.querySelector('#library-cancel-pick').hidden);
+  await page.locator('#library-cancel-pick').click();
+  await page.waitForFunction(() => document.querySelector('#library-location-status').textContent.includes('已取消'));
+  await page.waitForFunction(() => !document.querySelector('#library-choose').disabled);
+  assert.equal(pickerPending, false, 'cancel must release the folder-selection request');
+  assert.ok(await page.locator('#cancel-song').isDisabled(), 'folder cancellation must not require an active song');
   assert.ok(await page.locator('#prepare-song').isDisabled());
   await page.locator('#library-path').fill('C:/test-library');
   await page.locator('#library-use-path').click();
