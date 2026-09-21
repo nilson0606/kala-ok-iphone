@@ -23,6 +23,11 @@
       </ol>
       <p class="help">重開機不會移除安裝。只有關閉本機工具、重開機後未啟動，或連線權限被拒絕時，需要重新連線。Windows 重設／重灌後可能需要重建。</p>
     </details>
+    <label for="library-path">歌曲庫資料夾（每台電腦各自設定）</label>
+    <input id="library-path" type="text" placeholder="選擇資料夾，或輸入完整本機路徑" autocomplete="off" spellcheck="false">
+    <div class="button-row"><button id="library-choose" type="button" class="secondary">選擇資料夾</button><button id="library-use-path" type="button" class="secondary">使用此資料夾</button></div>
+    <p id="library-location-status" class="status" role="status">第一次使用請先指定歌曲庫位置。之後會記住這台電腦的設定。</p>
+    <p class="help">變更位置會切換歌曲庫；原資料夾的歌曲仍保留。選回原資料夾即可繼續使用。歌曲載入中請先「取消／卸載」，再變更位置。</p>
     <p class="footnote">第一次準備歌曲需要下載模型；之後會重用本機模型。歌曲音訊不會上傳到雲端。</p>
   </section>
   <div class="layout">
@@ -90,9 +95,10 @@
     <div class="score-grid"><div class="total"><strong id="total-score">—</strong><span>總分 / 100</span></div><div><strong id="pitch-score">—</strong><span>音準 · 60%</span></div><div><strong id="rhythm-score">—</strong><span>進拍 · 25%</span></div><div><strong id="coverage-score">—</strong><span>完整度 · 15%</span></div></div>
     <div class="button-row"><button id="sing-start" disabled type="button">從頭開始唱</button><button id="finish-song" disabled type="button" class="secondary">結束並結算</button></div>
     <p id="score-status" class="status" role="status">準備歌曲並開啟麥克風後，按播放就開始評分。</p>
-    <p class="footnote">暫停與緩衝不計分。漏唱、跳過或提前結束的段落會降低分數；整首完成後才有最終總分。進拍分數依旋律起音估計，不是專業聲樂評鑑。</p>
+    <p class="footnote">暫停與緩衝不計分。漏唱、跳過或提前結束的段落會降低分數；可在中途按「結束並結算」，或等影片播完自動結算。進拍分數依旋律起音估計，不是專業聲樂評鑑。</p>
     <details><summary>演唱紀錄 · 只存在這個瀏覽器</summary><ul id="score-history" class="score-history"></ul><button id="clear-history" class="secondary" type="button">清除演唱紀錄</button></details>
   </section>
+  <aside class="notice" aria-label="使用限制與免責聲明"><strong>本機測試用途 · 不得商用</strong><p class="help">本工具僅供本機測試與個人非商業練習。請尊重著作權，只處理您有權使用或已取得授權的內容，不得未經授權下載、複製或散布。本工具不提供歌曲內容或使用授權；使用者應自行確認其使用符合相關法規與平台規範。自動分析與評分僅供測試參考，不保證準確性。</p></aside>
   <footer><span>唱一下 / Local-first experiment</span><span>麥克風 → 本機音高分析 → 畫面</span></footer>
 </main>
 <script type="module" src="app.mjs"></script>

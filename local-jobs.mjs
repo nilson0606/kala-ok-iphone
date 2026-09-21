@@ -4,13 +4,19 @@ import { readFile, rm, mkdir, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LocalLibrary, cacheKey } from './local-library.mjs';
+import { LibraryLocation } from './library-location.mjs';
 import { validateReference } from './scoring.mjs';
 const root = fileURLToPath(new URL('./', import.meta.url));
 const jobsRoot = path.join(root, '.runtime', 'jobs');
 const python = path.join(root, '.runtime', 'venv', 'Scripts', 'python.exe');
 const token = randomBytes(32).toString('hex');
 const jobs = new Map();
-const library = new LocalLibrary(path.join(root, '.runtime', 'library'));
+const location = new LibraryLocation(path.join(root, '.runtime'));
+let library = null, changingLocation = false;
+async function currentLibrary() {
+  if (!library) { const saved = await location.get(); if (saved.configured) library = new LocalLibrary(saved.path); }
+  return library;
+}
 const json = (res, code, value) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
 async function body(req) {
   let text = '';
@@ -102,9 +108,35 @@ async function start(videoId, seconds, preview = false) {
   return job;
 }
 export async function handleLocalJobs(req, res) {
-  if (req.url === '/session' && req.method === 'GET') { json(res, 200, { token, features: ['library', 'stem-preview'] }); return true; }
+  if (req.url === '/session' && req.method === 'GET') { json(res, 200, { token, features: ['library', 'stem-preview', 'library-location'] }); return true; }
   if (!req.url.startsWith('/jobs') && !req.url.startsWith('/library') && req.url !== '/shutdown') return false;
   if (req.headers['x-karaoke-token'] !== token) { json(res, 403, { error: 'Session token required' }); return true; }
+  if (req.url === '/library/location' && req.method === 'GET') { json(res, 200, await location.get()); return true; }
+  if (['/library/location', '/library/location/pick'].includes(req.url) && req.method === 'POST') {
+    if (changingLocation || jobs.size) { json(res, 409, { error: '請先取消／卸載目前歌曲，再變更歌曲庫位置。' }); return true; }
+    changingLocation = true;
+    try {
+      let selected;
+      if (req.url.endsWith('/pick')) {
+        if (process.platform !== 'win32') throw new Error('請在網頁輸入完整資料夾路徑。');
+        const saved = await location.get();
+        selected = await new Promise((resolve, reject) => execFile('powershell.exe', ['-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', path.join(root, 'tools', 'select-library-folder.ps1'), '-InitialPath', saved.path || saved.suggestedPath], { windowsHide: true, timeout: 180000, encoding: 'utf8' }, (error, stdout) => {
+          if (error) return reject(new Error('資料夾選擇已逾時或無法開啟，請重試或直接輸入路徑。'));
+          try { resolve(JSON.parse(stdout.replace(/^\uFEFF/, '').trim())); } catch { reject(new Error('無法讀取資料夾選擇結果。')); }
+        }));
+      } else selected = await body(req);
+      if (selected.cancelled) { json(res, 200, { ...await location.get(), cancelled: true }); return true; }
+      const saved = await location.set(selected.path);
+      library = new LocalLibrary(saved.path); json(res, 200, saved);
+    } catch (error) { json(res, 400, { error: error.message }); }
+    finally { changingLocation = false; }
+    return true;
+  }
+  if (req.url.startsWith('/library') || (req.url === '/jobs' && req.method === 'POST')) {
+    await currentLibrary();
+    if (changingLocation) { json(res, 409, { error: '正在設定歌曲庫資料夾，請稍候。' }); return true; }
+    if (!library) { json(res, 409, { error: '第一次使用請先指定歌曲庫資料夾，再準備歌曲。' }); return true; }
+  }
   if (req.url === '/library' && req.method === 'GET') { json(res, 200, { songs: await library.list() }); return true; }
   if (req.url.startsWith('/library/')) {
     const match = /^\/library\/([\w-]{11}_(?:0|15|30|60)_v1)(?:\/(reference|vocals|accompaniment))?$/.exec(req.url);

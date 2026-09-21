@@ -3,7 +3,7 @@ import { createCalibration } from './calibration.mjs';
 import { createKaraokeSession } from './session.mjs';
 const $ = id => document.getElementById(id);
 let player, playerReady, apiPromise, stream, context, analyser, samples, micTimer;
-let calibration;
+let calibration, micStartPromise;
 let generation = 0, history = [], beatTimer, beatStart, probeController;
 const supported = window.isSecureContext && !!navigator.mediaDevices?.getUserMedia;
 $('environment').textContent = supported ? '桌機收音環境就緒。可測試麥克風與播放器；未取得歌曲基準前不計分。' : '無法開啟麥克風。請用桌機 Chrome／Edge 開啟 HTTPS 網址，並確認瀏覽器有收音權限。';
@@ -97,18 +97,24 @@ $('probe').addEventListener('click', async () => {
 });
 function latency(x) { return Number.isFinite(x) ? `${Math.round(x * 1000)} ms（估計）` : '未提供，不能當作 0 ms'; }
 $('offset').addEventListener('input', () => { $('offset-value').textContent = `${$('offset').value} ms`; });
-async function stopMic(message = '收音已停止，聲音資料已釋放。') {
+async function stopMic(message = '收音已停止，聲音資料已釋放。', rewind = false) {
   generation++; clearInterval(micTimer); calibration?.cancel();
   const oldStream = stream, oldContext = context;
   stream = context = analyser = samples = null; history = [];
   oldStream?.getTracks().forEach(t => t.stop());
-  if (oldContext) { oldContext.onstatechange = null; await oldContext.close().catch(() => {}); }
+  if (oldContext) oldContext.onstatechange = null;
   $('mic-start').disabled = !supported; $('mic-stop').disabled = true;
   $('mic-badge').textContent = '麥克風未開啟'; $('mic-status').textContent = message;
   $('note').textContent = '—'; $('frequency').textContent = '等待收音'; $('cents').textContent = '單音音高 · 65–1000 Hz';
-  $('level').value = 0; $('level-text').textContent = '— dBFS'; $('device').textContent = '收音已停止。'; singing.micStopped(); draw();
+  $('level').value = 0; $('level-text').textContent = '— dBFS'; $('device').textContent = '收音已停止。'; singing.micStopped({ rewind }); draw();
+  if (oldContext) await oldContext.close().catch(() => {});
 }
-$('mic-start').addEventListener('click', async () => {
+function startMic() {
+  if (stream && context?.state === 'running') return Promise.resolve(true);
+  if (!micStartPromise) micStartPromise = activateMic().finally(() => { micStartPromise = null; });
+  return micStartPromise;
+}
+async function activateMic() {
   const token = ++generation; let pendingStream, pendingContext;
   $('mic-start').disabled = true; $('mic-stop').disabled = false; $('mic-status').textContent = '請允許網站使用麥克風…';
   try {
@@ -130,15 +136,16 @@ $('mic-start').addEventListener('click', async () => {
     track.onunmute = () => { $('mic-status').textContent = '收音已恢復。'; };
     context.onstatechange = () => { if (context?.state !== 'running') $('mic-status').textContent = '音訊處理暫停，請停止後重新開啟。'; };
     $('mic-badge').textContent = '● 收音中'; $('mic-status').textContent = '持續唱「啊」試試。不播放人聲、不保存錄音。';
-    micTimer = setInterval(readMic, 65); singing.micStarted();
+    micTimer = setInterval(readMic, 65); singing.micStarted(); return true;
   } catch (err) {
     pendingStream?.getTracks().forEach(t => t.stop());
     if (pendingContext && pendingContext.state !== 'closed') await pendingContext.close().catch(() => {});
     if (token !== generation) return;
     await stopMic(err.name === 'NotAllowedError' ? '麥克風未獲允許。請點網址列的網站權限圖示，允許麥克風後再重試。' : err.name === 'NotFoundError' ? '找不到麥克風，請檢查裝置。' : `收音失敗：${err.message}`);
   }
-});
-$('mic-stop').addEventListener('click', () => stopMic());
+}
+$('mic-start').addEventListener('click', startMic);
+$('mic-stop').addEventListener('click', () => stopMic(undefined, true));
 function readMic() {
   if (!analyser || !samples || context?.state !== 'running') return;
   analyser.getFloatTimeDomainData(samples);
@@ -226,7 +233,7 @@ $('local-check').addEventListener('click', async () => {
     if (!response.ok) throw new Error('本機工具回應失敗。');
     const result = await response.json();
     if (result.app !== 'karaoke-local-helper' || result.version !== 1 || typeof result.checks !== 'object' || !result.checks) throw new Error('本機工具版本不相容，請重新下載工具包。');
-    if (!result.features?.includes('library')) throw new Error('本機工具需要更新，請停止後重新啟動。');
+    if (!result.features?.includes('library-location')) throw new Error('本機工具需要更新，請重新下載工具包，停止舊工具後再啟動。');
     const missing = Object.entries(localToolNames).filter(([key]) => result.checks[key] !== true).map(([, name]) => name);
     if (missing.length || !result.ready) {
       panel.dataset.state = 'warning'; $('install-guide').open = true;
@@ -245,7 +252,7 @@ $('local-check').addEventListener('click', async () => {
   } finally { clearTimeout(timer); button.disabled = false; }
 });
 
-const singing = createKaraokeSession({ player: () => player, micReady: () => !!stream && context?.state === 'running', stopMic: () => stopMic(), stopBeats, loadVideo: () => loadVideo(), cancelCalibration: () => calibration?.cancel() });
+const singing = createKaraokeSession({ player: () => player, micReady: () => !!stream && context?.state === 'running', stopMic: () => stopMic(), startMic, stopBeats, loadVideo: () => loadVideo(), cancelCalibration: () => calibration?.cancel() });
 
 calibration = createCalibration({ context: () => context, micReady: () => !!stream && context?.state === 'running', beforeStart: () => singing.pauseForCalibration() });
 
