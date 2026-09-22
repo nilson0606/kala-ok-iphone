@@ -97,7 +97,7 @@ node tests/library-browser-check.mjs
 
 ## 部署
 
-推送 main 後，GitHub Actions 執行單元測試，僅發布 `index.html`、`manual.html`、`navigation.mjs`、`style.css`、`app.mjs`、`audio.mjs`、`session.mjs`、`scoring.mjs`、`calibration.mjs`。本機工具、測試檔案與 `.runtime` 不進 Pages。網頁程式更新後可能需 Ctrl+F5；本機工具更新後需重新啟動。
+推送 main 後，GitHub Actions 執行單元測試，使用 `node build-site.mjs` 將 CSS 與所有前端模組放入依內容產生的 `assets/<版本>/` 目錄；HTML 及模組相對匯入都指向同一版本，避免舊快取忽略新選項。只發布 `index.html`、`manual.html`、`navigation.mjs`、`style.css`、`app.mjs`、`audio.mjs`、`session.mjs`、`scoring.mjs`、`calibration.mjs`。本機工具、測試檔案與 `.runtime` 不進 Pages。網頁程式更新後可能需 Ctrl+F5；本機工具更新後需重新啟動。
 
 `run-local-audio.ps1` 是開發診斷指令，會留下輸出供檢查，不是一般網頁流程；使用後自行清除該工作目錄。原始 `--input` 檔案不會被刪除。
 

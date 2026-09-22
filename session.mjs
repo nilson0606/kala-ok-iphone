@@ -18,6 +18,7 @@ export async function seekPlayerToStart(player, cancelled = () => false, timeout
 
 export function createKaraokeSession(options) {
   let reference = null, take = null, jobId = null, token = null, generation = 0, timer;
+  let requestedVocalMode = 'all';
   let phase = 'idle', loadedVideo = null, lastProgress = 0, rangeComplete = false;
   let libraryLocation = null, locationBusy = false;
   let previewUrl = null, previewRequest = null, previewSerial = 0, restartToken = 0;
@@ -111,6 +112,10 @@ export function createKaraokeSession(options) {
   });
   $('library-choose').addEventListener('click', () => chooseLocation(true));
   $('library-use-path').addEventListener('click', () => chooseLocation(false));
+  $('vocal-mode').addEventListener('change', () => {
+    previewAvailability();
+    if (reference && $('vocal-mode').value !== reference.vocalMode) $('prepare-status').textContent = '分離模式已變更，尚未套用。請按「準備歌曲基準」載入或建立所選模式；目前仍是' + (reference.vocalMode === 'lead' ? '主唱／和音模式。' : '一般人聲模式。');
+  });
   function previewAvailability() {
     $('lead-preview-buttons').hidden = reference?.vocalMode !== 'lead';
     const busy = ['preparing','finishing','restarting'].includes(phase);
@@ -257,9 +262,10 @@ export function createKaraokeSession(options) {
         const data = await api(`/jobs/${id}/reference`);
         if (current !== generation) return;
         reference = { ...validateReference(data), duration: data.duration, beats: data.beats || [], bpm: data.bpm, cacheId: data.cacheId, hasPreview: data.hasPreview, vocalMode: data.vocalMode || 'all', rangeSeconds: data.rangeSeconds ?? Number($('clip-seconds').value) };
+        if (reference.vocalMode !== requestedVocalMode) throw new Error('本機回傳的分離模式與所選模式不符，請更新頁面與本機工具後重試。');
         if (reference.videoId !== loadedVideo) throw new Error('影片已切換，請重新準備歌曲。');
         phase = 'ready';
-        $('prepare-status').textContent = `已就緒：${reference.title} · ${Math.round(reference.duration)} 秒 · ${state.cached ? '直接載入本機基準' : '已保存到本機'}${reference.hasPreview ? '，可試聽分離結果' : '，音檔已清除'}。`;
+        $('prepare-status').textContent = `已就緒：${reference.title} · ${reference.vocalMode === 'lead' ? '主唱／和音模式' : '一般人聲模式'} · ${Math.round(reference.duration)} 秒 · ${state.cached ? '直接載入本機基準' : '已保存到本機'}${reference.hasPreview ? '，可試聽分離結果' : '，音檔已清除'}。`;
         $('result-title').textContent = reference.title + (reference.vocalMode === 'lead' ? ' · 以主唱評分' : '');
         for (const id of ['total-score','pitch-score','rhythm-score','coverage-score']) $(id).textContent = '—';
         if (reference.beats.length && reference.bpm) {
@@ -281,6 +287,7 @@ export function createKaraokeSession(options) {
   async function prepareSong(force = false) {
     const id = youtubeId($('url').value.trim());
     if (!id) { $('prepare-status').textContent = '請先填入有效的 YouTube 影片網址。'; return; }
+    requestedVocalMode = $('vocal-mode').value;
     const clearing = clear('正在連接本機工具…');
     const current = generation; loadedVideo = id;
     phase = 'preparing'; renderPreparation({ stage: 'starting', message: '正在連接本機工具…' }); controls();
@@ -288,7 +295,7 @@ export function createKaraokeSession(options) {
     if (current !== generation) return;
     try {
       const helper = await ensureSession();
-      if ($('vocal-mode').value === 'lead' && !helper.features?.includes('lead-vocals')) throw new Error('本機工具需要更新才能使用主唱／和音分離，請更新工具包並重新執行 setup-local.ps1。');
+      if (requestedVocalMode === 'lead' && !helper.features?.includes('lead-vocals')) throw new Error('本機工具需要更新才能使用主唱／和音分離，請更新工具包並重新執行 setup-local.ps1。');
       if (force && !helper.features?.includes('rebuild-song')) throw new Error('本機工具需要更新才能重新分離，請更新工具包並重新啟動。');
       if (!libraryLocation.configured) throw new Error('請先指定歌曲庫資料夾，再準備歌曲。');
       if (!await options.loadVideo()) throw new Error('播放器尚未就緒，請重新載入影片後再試。');
@@ -296,7 +303,7 @@ export function createKaraokeSession(options) {
       options.player()?.pauseVideo?.();
       await ensureSession();
       if (current !== generation) return;
-      const created = await api('/jobs', { method: 'POST', body: JSON.stringify({ videoId: id, seconds: Number($('clip-seconds').value), preview: $('keep-preview').checked, ...($('vocal-mode').value === 'lead' ? {vocalMode:'lead'} : {}), ...(force ? { force: true } : {}) }) });
+      const created = await api('/jobs', { method: 'POST', body: JSON.stringify({ videoId: id, seconds: Number($('clip-seconds').value), preview: $('keep-preview').checked, ...(requestedVocalMode === 'lead' ? {vocalMode:'lead'} : {}), ...(force ? { force: true } : {}) }) });
       if (current !== generation) { await removeJob(created.id); return; }
       jobId = created.id; controls(); await poll(jobId, current);
     } catch (error) {

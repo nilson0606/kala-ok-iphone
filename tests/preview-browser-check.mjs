@@ -35,6 +35,17 @@ try {
   });
   const page = await context.newPage(), errors = [], requests = [], removed = [];
   page.on('pageerror', error => errors.push(error.message));
+  const bareRequests=[];
+  if(process.env.KARAOKE_SITE_DIR) {
+    // A returning browser may still have stale responses at these pre-versioning URLs.
+    await page.route('http://localhost:4173/**',async route=>{
+      const pathname=new URL(route.request().url()).pathname;
+      if(/^\/[a-z-]+\.(?:mjs|css)$/.test(pathname)) {
+        bareRequests.push(pathname);
+        await route.fulfill({body:pathname.endsWith('.css')?'body{display:none}':"throw new Error('Cached old release loaded')",contentType:pathname.endsWith('.css')?'text/css':'text/javascript'});
+      } else await route.fallback();
+    });
+  }
   let serial = 0;
   await page.route('http://127.0.0.1:4174/**', async route => {
     const req=route.request(), url=new URL(req.url()); let value={};
@@ -84,11 +95,13 @@ try {
   await page.waitForFunction(()=>!document.querySelector('#preview-vocals').disabled);
   assert.deepEqual(requests[2],{videoId:'M7lc1UVf-VE',seconds:30,preview:true,force:true});
   await page.locator('#vocal-mode').selectOption('lead');
+  assert.match(await page.locator('#prepare-status').textContent(),/尚未套用/);
   await page.locator('#rebuild-song').click();
   await page.waitForFunction(()=>!document.querySelector('#preview-lead').disabled);
   assert.deepEqual(requests[3],{videoId:'M7lc1UVf-VE',seconds:30,preview:true,vocalMode:'lead',force:true});
   assert.ok(await page.locator('#lead-preview-buttons').isVisible());
   assert.match(await page.locator('#result-title').textContent(),/以主唱評分/);
+  assert.match(await page.locator('#prepare-status').textContent(),/主唱／和音模式/);
   for (const stem of ['lead','backing']) {
     await page.locator('#preview-'+stem).click();
     await page.waitForFunction(()=>{const a=document.querySelector('#stem-audio');return a.duration>2&&a.currentTime>.1&&!a.paused;});
@@ -116,5 +129,6 @@ try {
   assert.ok(await page.locator('#stem-audio').isHidden());
   assert.equal(await page.locator('#stem-audio').getAttribute('src'),null);
   assert.deepEqual(errors,[]);
+  assert.deepEqual(bareRequests,[], 'production must bypass stale bare module and CSS URLs');
   console.log('Default/lead modes, missing-preview upgrade, four decoded previews, rebuild, unload, manual new tab and responsive layout passed.');
 } finally {await browser?.close();server.kill();await rm(fixture,{force:true});}

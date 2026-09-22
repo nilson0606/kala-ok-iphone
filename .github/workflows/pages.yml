@@ -23,10 +23,7 @@ jobs:
           node-version: '22'
       - run: npm test
       - name: Prepare static site only
-        run: |
-          mkdir _site
-          cp index.html manual.html style.css navigation.mjs app.mjs audio.mjs session.mjs scoring.mjs calibration.mjs _site/
-          touch _site/.nojekyll
+        run: node build-site.mjs
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
