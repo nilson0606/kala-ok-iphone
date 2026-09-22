@@ -144,3 +144,9 @@ audio-separator 0.47 的 soundfile writer 會沿用輸入 subtype，MP3 的 `MPE
 RMVPE 權重為 181,184,272 bytes（約 181 MB / 172.8 MiB），共用路徑 `.runtime/models/rmvpe/rmvpe.pt`。下載驗證固定 SHA-256，權重以 `weights_only=True` 讀取；來源與 Apache-2.0 程式碼授權見 `tools/vendor/rmvpe/NOTICE.md`。使用既有 torch/librosa，不需另裝整套聲音轉換工具。推論每段核心 8 秒、前後各 1 秒上下文，保留原始時間，將 10 ms 預測以多數有效及中位数映射到 100 ms 格線；限制 65–1000 Hz，不把不確定音高強制補滿。優先 GPU，相關 GPU 錯誤才重試 CPU，失敗不默默改成 YIN。試聽音軌與麥克風即時 YIN 不變。
 
 RMVPE 驗證：33 項 JavaScript、24 項 Python 測試；Edge／Chrome 的正式版資產通過新選項、舊工具攔截、歌單方法辨識與跨模型共用遮罩。實際以 3 秒合成訊號跑 CPU，及從已存《吻別》音軌取 8 秒跑推論／本機 HTTP 工作完整流程，確認重用音軌、80 格基準、保存、遮罩繼承、原試聽 bytes 不變及第二次直接載入快取；沒有重新下載歌曲或重新分離。短測確認流程，沒有宣稱整首歌音高更準或長時間負載已驗證。
+
+### 試聽版本確認
+
+試聽依已載入 `reference.cacheId` 取得音檔；Demucs／BS 使用不同 ID。試聽區固定顯示實際歌曲、模型與模式。改選尚未套用的分離模型／人聲模式會停止並清除舊 blob，停用試聽直到準備完成；只切換音高方式不改音軌。前端取檔也明確 `cache: no-store`（本機 API 原有 `Cache-Control: no-store`）。Edge／Chrome 回歸測試使用不同音訊 bytes 模擬兩模型，逐一核對實際請求 ID 和 audio 元件 blob 雜湊，包含切回 Demucs。
+
+另在本機實際比對《老鼠愛大米》Demucs／BS 的試聽 API bytes 與歌曲庫檔案一致、雜湊不同；取第 45、90、180 秒各 8 秒解碼後，三段 PCM 都不同，排除只差檔案標頭。此檢查證明音軌有切換，不代表 BS 分離品質一定更好。

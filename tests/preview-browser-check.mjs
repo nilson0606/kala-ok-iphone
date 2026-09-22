@@ -5,6 +5,7 @@ import { writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import { normalizeMasks } from '../scoring.mjs';
 const require = createRequire(process.env.PLAYWRIGHT_PACKAGE_ROOT || 'C:/Users/User/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/package.json');
 const { chromium } = require('playwright');
@@ -15,6 +16,9 @@ data.write('RIFF'); data.writeUInt32LE(data.length - 8, 4); data.write('WAVEfmt 
 data.writeUInt16LE(1, 20); data.writeUInt16LE(1, 22); data.writeUInt32LE(rate, 24); data.writeUInt32LE(rate * 2, 28);
 data.writeUInt16LE(2, 32); data.writeUInt16LE(16, 34); data.write('data', 36); data.writeUInt32LE(data.length - 44, 40);
 for (let i = 0; i < rate * 3; i++) data.writeInt16LE(Math.round(Math.sin(2 * Math.PI * 440 * i / rate) * 10000), 44 + i * 2);
+const bsData=Buffer.from(data);
+for(let i=0;i<rate*3;i++)bsData.writeInt16LE(Math.round(Math.sin(2*Math.PI*660*i/rate)*10000),44+i*2);
+const audioHash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const fixture = path.join(tmpdir(), `karaoke-flow-${process.pid}.wav`); await writeFile(fixture, data);
 const server = spawn(process.execPath, ['server.mjs'], { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
 let browser;
@@ -35,7 +39,8 @@ try {
       buffer() { this.time = this.getCurrentTime(); this.state = 3; this.options.events.onStateChange({ data: 3 }); }
     }};
   });
-  const page = await context.newPage(), errors = [], requests = [], removed = [];
+  const page = await context.newPage(), errors = [], requests = [], removed = [], previewPaths = [];
+  const playingHash=()=>page.evaluate(async()=>{const bytes=await(await fetch(document.querySelector('#stem-audio').src)).arrayBuffer();return [...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(x=>x.toString(16).padStart(2,'0')).join('');});
   page.on('pageerror', error => errors.push(error.message));
   const bareRequests=[];
   if(process.env.KARAOKE_SITE_DIR) {
@@ -68,7 +73,8 @@ try {
       value.masks=sharedMasks.get(value.videoId+'_'+value.rangeSeconds) || [];
       library.set(value.cacheId,value);
     } else if(url.pathname.startsWith('/library/')) {
-      await route.fulfill({body:data,contentType:'audio/wav',headers:{'Access-Control-Allow-Origin':site}});return;
+      previewPaths.push(url.pathname);
+      await route.fulfill({body:url.pathname.includes('_bs-roformer')?bsData:data,contentType:'audio/wav',headers:{'Access-Control-Allow-Origin':site}});return;
     } else if(url.pathname==='/jobs/'+String(1).padStart(32,'0') && firstPoll++===0) value={stage:'separating',progress:100,ready:false,message:'分離中'};
     else value={stage:'ready',ready:true,message:'ready'};
     await route.fulfill({json:value,headers:{'Access-Control-Allow-Origin':site}});
@@ -133,6 +139,8 @@ try {
     await page.waitForFunction(()=>{const a=document.querySelector('#stem-audio');return a.duration>2&&a.currentTime>.1&&!a.paused;});
     assert.ok(await page.locator('#stem-audio').isVisible());
   }
+  assert.equal(await playingHash(),audioHash(data));
+  assert.match(previewPaths.at(-1),/^\/library\/M7lc1UVf-VE_30_v1\//);
   await page.locator('#rebuild-song').click();
   await page.waitForFunction(()=>!document.querySelector('#preview-vocals').disabled);
   assert.deepEqual(requests[2],{videoId:'M7lc1UVf-VE',seconds:30,preview:true,force:true});
@@ -156,8 +164,24 @@ try {
   assert.equal(requests[4].vocalMode,undefined);
   assert.equal(await page.locator('#mask-list li').count(),2);
   // A new first-stage model must not reuse Demucs results, and both vocal modes work.
+  await page.locator('#preview-vocals').click();
+  await page.waitForFunction(()=>document.querySelector('#stem-audio').currentTime>.1);
+  const beforeModelSwitch=previewPaths.length;
   await page.locator('#separation-model').selectOption('bs-roformer');
   assert.match(await page.locator('#prepare-status').textContent(),/尚未套用/);
+  assert.match(await page.locator('#preview-source').textContent(),/Demucs/);
+  assert.match(await page.locator('#preview-status').textContent(),/尚未套用/);
+  assert.ok(await page.locator('#preview-vocals').isDisabled());
+  assert.equal(await page.locator('#stem-audio').getAttribute('src'),null);
+  assert.equal(previewPaths.length,beforeModelSwitch);
+  // Selecting the already-loaded song restores its controls after an unapplied edit.
+  await page.locator('#library-panel').evaluate(el=>{el.open=true;});
+  await page.locator('[data-song-id="M7lc1UVf-VE_30_v1"]').click();
+  assert.equal(await page.locator('#separation-model').inputValue(),'demucs');
+  assert.ok(await page.locator('#preview-vocals').isEnabled());
+  await page.locator('#library-panel').evaluate(el=>{el.open=false;});
+  await page.locator('#separation-model').selectOption('bs-roformer');
+
   await page.locator('#prepare-song').click();
   await page.waitForFunction(()=>document.querySelector('#prepare-status').textContent.startsWith('已就緒'));
   assert.equal(requests[5].separationModel,'bs-roformer');
@@ -166,6 +190,10 @@ try {
   await page.locator('#preview-vocals').click();
   await page.waitForFunction(()=>document.querySelector('#stem-audio').currentTime>.1);
   assert.match(await page.locator('#preview-status').textContent(),/BS-RoFormer/);
+  assert.match(await page.locator('#preview-source').textContent(),/BS-RoFormer/);
+  assert.equal(await playingHash(),audioHash(bsData));
+  assert.notEqual(await playingHash(),audioHash(data));
+  assert.match(previewPaths.at(-1),/^\/library\/M7lc1UVf-VE_30_bs-roformer_v1\/vocals$/);
   await page.locator('#vocal-mode').selectOption('lead');
   await page.locator('#rebuild-song').click();
   await page.waitForFunction(()=>!document.querySelector('#preview-lead').disabled);
@@ -181,6 +209,10 @@ try {
   assert.equal(await page.locator('#pitch-method').inputValue(),'yin');
   assert.match(await page.locator('#prepare-status').textContent(),/Demucs/);
   assert.equal(requests[7].separationModel,undefined);
+  await page.locator('#preview-vocals').click();
+  await page.waitForFunction(()=>document.querySelector('#stem-audio').currentTime>.1);
+  assert.equal(await playingHash(),audioHash(data));
+  assert.match(previewPaths.at(-1),/^\/library\/M7lc1UVf-VE_30_v1\/vocals$/);
   assert.equal(await page.locator('#mask-list li').count(),2);
   await page.locator('#sing-start').click();
   await page.waitForFunction(()=>!document.querySelector('#finish-song').disabled);
@@ -246,5 +278,5 @@ try {
   assert.equal(await page.locator('#stem-audio').getAttribute('src'),null);
   assert.deepEqual(errors,[]);
   assert.deepEqual(bareRequests,[], 'production must bypass stale bare module and CSS URLs');
-  console.log('Demucs/BS-RoFormer caches, legacy reload, helper capability, default/lead modes, missing-preview upgrade, four decoded previews, rebuild, unload, manual new tab, multiple saved masks, failed saves, shared masks across models and pitch methods, RMVPE capability checks, rest display, take edit lock and responsive layout passed.');
+  console.log('Demucs/BS-RoFormer caches, legacy reload, helper capability, default/lead modes, missing-preview upgrade, four decoded previews, rebuild, unload, manual new tab, multiple saved masks, failed saves, shared masks across models and pitch methods, RMVPE capability checks, rest display, take edit lock and responsive layout passed. Distinct Demucs/BS audio bytes reached the player, including switching back; unapplied model choices cannot play old previews.');
 } finally {await browser?.close();server.kill();await rm(fixture,{force:true});}

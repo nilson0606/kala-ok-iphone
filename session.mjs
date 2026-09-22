@@ -56,7 +56,7 @@ export function createKaraokeSession(options) {
     $('pitch-method').disabled = !!take || ['preparing','finishing','restarting'].includes(phase);
     $('vocal-mode').disabled = !!take || ['preparing', 'finishing', 'restarting'].includes(phase);
     $('keep-preview').disabled = ['preparing', 'finishing', 'restarting'].includes(phase);
-    for (const stem of ['vocals','accompaniment','lead','backing']) $('preview-' + stem).disabled = !reference?.hasPreview || (['lead','backing'].includes(stem) && reference?.vocalMode !== 'lead') || ['preparing','finishing','restarting'].includes(phase);
+    for (const stem of ['vocals','accompaniment','lead','backing']) $('preview-' + stem).disabled = !reference?.hasPreview || (['lead','backing'].includes(stem) && reference?.vocalMode !== 'lead') || previewSelectionChanged() || ['preparing','finishing','restarting'].includes(phase);
     $('library-list').querySelectorAll('button').forEach(button => { button.disabled = maskBusy || ['preparing','finishing','restarting'].includes(phase); if (button.dataset.songId) { if (button.dataset.songId === reference?.cacheId) button.setAttribute('aria-current', 'true'); else button.removeAttribute('aria-current'); } });
     previewAvailability();
     $('score-difficulty').disabled = !!take || ['preparing','finishing','restarting'].includes(phase);
@@ -144,19 +144,25 @@ export function createKaraokeSession(options) {
     if (reference && $('pitch-method').value !== reference.pitchMethod) $('prepare-status').textContent = '音高擷取方式已變更，尚未套用。請按「準備歌曲基準」。有保存相同分離版本的音軌時會直接重用，不需重新分離。';
   });
   $('vocal-mode').addEventListener('change', () => {
-    previewAvailability();
+    stopPreview(); controls();
     if (reference && $('vocal-mode').value !== reference.vocalMode) $('prepare-status').textContent = '分離模式已變更，尚未套用。請按「準備歌曲基準」載入或建立所選模式；目前仍是' + (reference.vocalMode === 'lead' ? '主唱／和音模式。' : '一般人聲模式。');
   });
   $('separation-model').addEventListener('change', () => {
+    stopPreview(); controls();
     if (reference && $('separation-model').value !== reference.separationModel) $('prepare-status').textContent = `分離模型已變更，尚未套用。請按「準備歌曲基準」載入或建立所選模型；目前仍是 ${modelName(reference.separationModel)}。`;
   });
+  function previewSelectionChanged() {
+    return !!reference && ($('separation-model').value !== reference.separationModel || $('vocal-mode').value !== reference.vocalMode);
+  }
   function previewAvailability() {
+    $('preview-source').textContent = reference ? `目前已載入：${reference.title} · ${modelName(reference.separationModel)} · ${reference.vocalMode === 'lead' ? '主唱／和音模式' : '一般人聲模式'}` : '尚未載入試聽版本。';
     $('lead-preview-buttons').hidden = reference?.vocalMode !== 'lead';
     const busy = ['preparing','finishing','restarting'].includes(phase);
     $('preview-build').hidden = !reference || !!reference.hasPreview;
-    $('preview-build').disabled = busy || !!take;
+    $('preview-build').disabled = busy || !!take || previewSelectionChanged();
     if (phase === 'preparing') $('preview-status').textContent = '正在準備歌曲，完成後才可試聽。';
     else if (!reference) $('preview-status').textContent = '請先載入歌曲，才能查看試聽音軌。';
+    else if (previewSelectionChanged()) $('preview-status').textContent = '所選分離模型／模式尚未套用，試聽已暫停。請按「準備歌曲基準」並等到已就緒，或從歌單載入對應版本。';
     else if (!reference.hasPreview) $('preview-status').textContent = '這首歌只有評分基準，未保留人聲／伴奏音檔。' + (take ? '請先結束並結算，再補建試聽音軌。' : '可按「補建試聽音軌」重新分離一次並保存在本機；之後可直接試聽。');
     else if (!previewUrl && !previewRequest) $('preview-status').textContent = (reference.vocalMode === 'lead' ? '人聲、伴奏、主唱與和音音軌已就緒，請選擇試聽。' : '人聲與伴奏音軌已就緒，請選擇試聽。');
   }
@@ -183,7 +189,7 @@ export function createKaraokeSession(options) {
     previewAvailability();
   }
   async function playPreview(stem) {
-    if (!reference?.hasPreview || !reference.cacheId) return;
+    if (!reference?.hasPreview || !reference.cacheId || previewSelectionChanged()) return;
     const id = reference.cacheId;
     stopPreview(); const serial = previewSerial;
     options.player()?.pauseVideo?.(); options.cancelCalibration?.();
@@ -191,7 +197,7 @@ export function createKaraokeSession(options) {
     const timeout = setTimeout(() => controller.abort(), 30000);
     $('preview-status').textContent = '正在從本機載入音軌…';
     try {
-      const response = await fetch(`${BASE}/library/${id}/${stem}`, { headers: { 'X-Karaoke-Token': token }, credentials: 'omit', signal: controller.signal });
+      const response = await fetch(`${BASE}/library/${id}/${stem}`, { headers: { 'X-Karaoke-Token': token }, credentials: 'omit', cache: 'no-store', signal: controller.signal });
       if (!response.ok) throw new Error('音軌不存在或已刪除，請勾選保留試聽後重新準備。');
       const blob = await response.blob(); if (serial !== previewSerial) return;
       previewUrl = URL.createObjectURL(blob); $('stem-audio').src = previewUrl; $('stem-audio').hidden = false;
@@ -221,7 +227,13 @@ export function createKaraokeSession(options) {
         if (reference?.cacheId === song.id) load.setAttribute('aria-current', 'true');
         load.addEventListener('click', () => {
           if (['preparing','finishing','restarting'].includes(phase)) return;
-          if (reference?.cacheId === song.id) { message('這首歌已載入，可直接按「從頭開始唱」。'); return; }
+          if (reference?.cacheId === song.id) {
+            $('separation-model').value = reference.separationModel;
+            $('vocal-mode').value = reference.vocalMode;
+            $('pitch-method').value = reference.pitchMethod;
+            controls(); $('prepare-status').textContent = `已就緒：${reference.title} · ${modelName(reference.separationModel)} · ${reference.pitchMethod.toUpperCase()} 音高。`;
+            message('這首歌已載入，可直接試聽或按「從頭開始唱」。'); return;
+          }
           $('url').value = `https://www.youtube.com/watch?v=${song.videoId}`;
           $('separation-model').value = song.separationModel || 'demucs';
           $('pitch-method').value = song.pitchMethod || 'yin';
