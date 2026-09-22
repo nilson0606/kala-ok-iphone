@@ -106,7 +106,7 @@ async function stopMic(message = '收音已停止，聲音資料已釋放。', r
   $('mic-start').disabled = !supported; $('mic-stop').disabled = true;
   $('mic-badge').textContent = '麥克風未開啟'; $('mic-status').textContent = message;
   $('note').textContent = '—'; $('frequency').textContent = '等待收音'; $('cents').textContent = '單音音高 · 65–1000 Hz';
-  $('level').value = 0; $('level-text').textContent = '— dBFS'; $('device').textContent = '收音已停止。'; singing.micStopped({ rewind }); draw();
+  $('level').value = 0; $('level-text').textContent = '— dBFS'; $('device').textContent = '收音已停止。'; singing.micStopped({ rewind, reason: message }); draw();
   if (oldContext) await oldContext.close().catch(() => {});
 }
 function startMic() {

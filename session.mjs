@@ -279,10 +279,11 @@ export function createKaraokeSession(options) {
     if (!reference || phase === 'restarting') return;
     stopPreview(); options.cancelCalibration?.();
     const request = ++restartToken, p = options.player();
-    phase = 'restarting'; message('正在同步 YouTube 到 0 秒…'); controls();
+    phase = 'restarting'; message(options.micReady() ? '正在同步 YouTube 到 0 秒…' : '正在開啟麥克風，請允許瀏覽器的收音授權…'); controls();
     try {
       if (!options.micReady()) await options.startMic();
-      if (request !== restartToken || !reference || !options.micReady()) { if (request === restartToken) { phase = take ? 'paused' : 'ready'; controls(); } return; }
+      if (request !== restartToken || !reference || !options.micReady()) { if (request === restartToken) { phase = take ? 'paused' : 'ready'; message('未開始演唱：麥克風尚未就緒，請查看「收音」區的狀態，再按「從頭開始唱」。'); controls(); } return; }
+      message('正在同步 YouTube 到 0 秒…');
       await seekPlayerToStart(p, () => request !== restartToken || !reference || !options.micReady());
       if (request !== restartToken || !reference || !options.micReady()) return;
       take?.clear(); take = new ScoringTake(reference, { allowOctave: $('pitch-mode').value === 'octave', rangeMode: $('score-range').value });
@@ -354,10 +355,11 @@ export function createKaraokeSession(options) {
       if (reference && options.player()?.getPlayerState?.() === 1) playerState(1);
       controls();
     },
-    micStopped({ rewind = false } = {}) {
-      if (phase === 'restarting') { restartToken++; phase = take ? 'paused' : 'ready'; }
+    micStopped({ rewind = false, reason = '收音已停止。' } = {}) {
+      const interruptedRestart = phase === 'restarting';
+      if (interruptedRestart) { restartToken++; phase = take ? 'paused' : 'ready'; message(`未開始演唱：${reason}${take ? ' 上次演唱資料已保留，可先結算。' : ''}`); }
       if (phase === 'singing') { take?.advance(options.player()?.getCurrentTime?.() || 0); phase = 'paused'; options.player()?.pauseVideo?.(); }
-      if (take && phase === 'paused') message('收音已停止，本次演唱資料已保留。可按「結束並結算」，或「從頭開始唱」重新計分。');
+      if (take && phase === 'paused' && !interruptedRestart) message('收音已停止，本次演唱資料已保留。可按「結束並結算」，或「從頭開始唱」重新計分。');
       if (rewind && options.player()?.seekTo && !['preparing','finishing','result'].includes(phase)) {
         const request = ++restartToken;
         seekPlayerToStart(options.player(), () => request !== restartToken).then(() => {

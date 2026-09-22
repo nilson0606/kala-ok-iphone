@@ -79,7 +79,39 @@ try {
   await page.waitForFunction(() => document.querySelector('#prepare-status').textContent.startsWith('已就緒'));
   assert.ok(await page.locator('#library-choose').isDisabled(), 'active song locks library location');
   assert.ok(await page.locator('#sing-start').isEnabled(), 'start can request microphone permission when reference is ready');
-  await page.locator('#mic-start').click();
+  // A failed microphone request used to leave a stale "syncing to zero" message.
+  await page.evaluate(() => { window.originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices); });
+  for (const [name, expected] of [['NotAllowedError', '未獲允許'], ['NotFoundError', '找不到麥克風'], ['NotReadableError', '收音失敗']]) {
+    await page.evaluate(name => { navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('test microphone failure', name); }; }, name);
+    await page.locator('#sing-start').click();
+    await page.waitForFunction(expected => document.querySelector('#score-status').textContent.includes(expected), expected);
+    assert.doesNotMatch(await page.locator('#score-status').textContent(), /正在同步/);
+    assert.ok(await page.locator('#sing-start').isEnabled());
+    assert.ok(await page.locator('#finish-song').isDisabled());
+  }
+  // Leaving the foreground while the permission prompt is pending must cancel
+  // the restart visibly, without creating a take or leaving a misleading sync label.
+  await page.evaluate(() => {
+    const OriginalContext = window.AudioContext;
+    window.AudioContext = class extends OriginalContext { constructor(...args) { super(...args); window.pendingMicContext = this; } };
+    navigator.mediaDevices.getUserMedia = () => new Promise((_, reject) => { window.rejectPendingMic = () => reject(new DOMException('cancelled', 'NotAllowedError')); });
+  });
+  await page.locator('#sing-start').click();
+  await page.waitForFunction(() => !!window.rejectPendingMic);
+  assert.match(await page.locator('#score-status').textContent(), /開啟麥克風.*授權/);
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', {configurable:true, value:true});
+    document.dispatchEvent(new Event('visibilitychange'));
+    delete document.hidden;
+    window.rejectPendingMic();
+  });
+  await page.waitForFunction(() => window.pendingMicContext.state === 'closed');
+  assert.match(await page.locator('#score-status').textContent(), /未開始演唱.*離開前景/);
+  assert.ok(await page.locator('#sing-start').isEnabled());
+  assert.ok(await page.locator('#finish-song').isDisabled());
+  await page.evaluate(() => { navigator.mediaDevices.getUserMedia = window.originalGetUserMedia; });
+  await page.locator('#sing-start').click();
+  await page.waitForFunction(() => window.fixturePlayer.getPlayerState() === 1 && document.querySelector('#score-status').textContent.includes('演唱中'));
   await page.waitForFunction(() => document.querySelector('#note').textContent === 'A4');
   // Native player play starts scoring too, not only the page's start button.
   await page.evaluate(() => window.fixturePlayer.playVideo());
@@ -225,5 +257,5 @@ try {
   assert.ok(await page.locator('#score-range').isEnabled());
   assert.equal(createdVideos.length, jobsBeforeSwitch + 1, 'partial settlement retains the current song too');
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ separationProgress: 'passed', retainSongAfterSettlement: 'passed', librarySongSwitch: 'passed', performedRangeAfterRewind: 'passed', firstRunLibrarySetup: 'passed', fullPlaybackSettlement: 'passed', restartWhilePlayingClearsTake: 'passed', pauses: 'passed', buffering: 'passed', cancellation: 'passed', stopThenManualSettlement: 'passed', delayedSeekSync: 'passed', stopRewindsAndRestartEnabled: 'passed', localHistory: 'title+score only', errors }));
+  console.log(JSON.stringify({ microphoneFailureAndRetry: 'passed', foregroundInterruptionAndRetry: 'passed', separationProgress: 'passed', retainSongAfterSettlement: 'passed', librarySongSwitch: 'passed', performedRangeAfterRewind: 'passed', firstRunLibrarySetup: 'passed', fullPlaybackSettlement: 'passed', restartWhilePlayingClearsTake: 'passed', pauses: 'passed', buffering: 'passed', cancellation: 'passed', stopThenManualSettlement: 'passed', delayedSeekSync: 'passed', stopRewindsAndRestartEnabled: 'passed', localHistory: 'title+score only', errors }));
 } finally { await browser?.close(); server.kill(); await rm(fixture, { force: true }); }
