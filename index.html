@@ -10,7 +10,7 @@
 </head>
 <body>
 <main>
-  <header><a href="./" class="brand"><span class="brand-icon">♪</span> 唱一下 <small>LOCAL LAB</small></a><div class="header-controls"><span class="pill">本機分析 · 不存錄音</span><label class="theme-picker" for="theme-select">配色<select id="theme-select"><option value="current">目前配色</option><option value="warm">暖色調</option></select></label></div></header>
+  <header><a href="./" class="brand"><span class="brand-icon">♪</span> 唱一下 <small>LOCAL LAB</small></a><div class="header-controls"><span class="pill">本機分析 · 不存錄音</span><label class="theme-picker" for="theme-select">配色<select id="theme-select"><option value="current">冷色調</option><option value="warm">暖色調</option></select></label></div></header>
   <nav class="section-nav" aria-label="頁面區段導覽">
     <a href="#player-section">播放器</a><a href="#prepare-section">歌曲準備</a><a href="#library-panel">歌曲庫</a><a href="#voice-section">收音</a><a href="#timing-section">延遲</a><a href="#score-section">評分／結算</a><a href="#local-section">本機設定</a><a href="manual.html" target="_blank" rel="noopener">操作手冊 ↗</a>
   </nav>
@@ -38,7 +38,7 @@
   </section>
   <div class="layout">
     <section id="player-section" tabindex="-1" class="card source-card">
-      <div class="section-top"><h2><span class="step">01</span> 放一首歌</h2><span class="subtle">YouTube 原生播放</span></div>
+      <div class="section-top"><h2><span class="step">01</span> 歌曲網址</h2><span class="subtle">YouTube 原生播放</span></div>
       <form id="song-form"><label for="url">歌曲影片網址</label><div class="input-row"><input id="url" type="url" placeholder="https://www.youtube.com/watch?v=…" required autocomplete="off"><button type="submit">載入影片</button></div></form>
       <p id="player-status" class="status" role="status">貼上網址後，影片會在這裡播放。</p>
       <div class="video-shell"><div id="video-placeholder"><span>▶</span><p>你的下一首歌</p><small>播放器與麥克風分別啟動</small></div><div id="player"></div></div>
@@ -64,7 +64,7 @@
       <details><summary>收音裝置與狀態</summary><pre id="device">授權後才會顯示裝置資訊。</pre></details>
     </section>
     <section id="prepare-section" tabindex="-1" class="card prepare-card">
-      <div class="section-top"><h2>準備這首歌</h2><span class="subtle">本機分析與歌曲庫</span></div>
+      <div class="section-top"><h2>聲曲分離與音高旋律擷取</h2><span class="subtle">本機分析與歌曲庫</span></div>
       <label for="clip-seconds">分析範圍</label><select id="clip-seconds"><option value="0">完整歌曲（最長 15 分鐘）</option><option value="15">先試前 15 秒</option><option value="30">先試前 30 秒</option><option value="60">先試前 60 秒</option></select>
       <label for="pitch-method">基準音高擷取</label><select id="pitch-method"><option value="yin">YIN（原有方式，預設）</option><option value="rmvpe">RMVPE（歌聲音高模型，減少伴奏干擾）</option></select><p class="help">RMVPE 首次下載約 181 MB，所有歌曲共用。只改變評分基準，不會讓試聽音軌更乾淨。兩種音高版本分開保存；有保存相同模型／模式的分離音軌時，按「準備歌曲基準」即可重用，不必重跑分離。手工遮罩依原始影片及分析範圍共用。</p>
       <label for="separation-model">聲曲分離模型</label><select id="separation-model"><option value="demucs">Demucs／htdemucs（目前模型，預設）</option><option value="bs-roformer">BS-RoFormer／Viperx 1297（比較試聽）</option></select><p class="help">兩種模型皆分離人聲與伴奏，可搭配下方主唱／和音模式。不同模型各自保存，舊歌仍是 Demucs，不需重做。BS-RoFormer 首次需下載模型，完成後可在歌單切換試聽比較。</p>
@@ -115,7 +115,7 @@
     </section>
   </div>
   <section id="score-section" tabindex="-1" class="card score-card">
-    <div class="section-top"><h2><span class="step">04</span> 開始唱，留下這次成績</h2><span class="subtle">練習評分</span></div>
+    <div class="section-top"><h2><span class="step">04</span> 評分設定，啟動，與成績</h2><span class="subtle">練習評分</span></div>
     <p id="result-title" class="score-title">尚未選定歌曲</p>
     <label for="score-difficulty">評分難度</label><select id="score-difficulty" aria-describedby="difficulty-help"><option value="standard">標準（目前規則，預設）</option><option value="strict">嚴格（精準練習）</option><option value="relaxed">寬鬆（輕鬆練唱）</option></select>
     <p id="difficulty-help" class="help"></p>
