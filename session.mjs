@@ -328,7 +328,10 @@ export function createKaraokeSession(options) {
       take?.clear(); take = new ScoringTake(reference, { allowOctave: $('pitch-mode').value === 'octave', rangeMode: $('score-range').value });
       take.begin(0); lastProgress = 0; rangeComplete = false; phase = 'paused';
       $('total-score').textContent = '…'; $('pitch-score').textContent = '—'; $('rhythm-score').textContent = '—'; $('coverage-score').textContent = '—';
-      message('影片已回到開頭，等待播放開始。'); controls(); p.playVideo();
+      message('影片已回到開頭，等待播放開始。'); controls();
+      $('player-section').focus({ preventScroll: true });
+      $('player-section').scrollIntoView({ behavior: 'instant', block: 'start' });
+      p.playVideo();
       if (p.getPlayerState() === 1) playerState(1);
     } catch (error) {
       if (request !== restartToken) return;

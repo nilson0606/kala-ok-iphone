@@ -42,3 +42,7 @@ main{max-width:1360px}
 .prepare-buttons{flex-wrap:wrap}
 
 [hidden] { display: none !important; }
+
+#library-panel > summary{font-size:clamp(20px,2vw,24px);font-weight:800;line-height:1.5;color:var(--accent);background:#263020;border:1px solid #62734b;border-left:4px solid var(--accent);border-radius:10px;padding:12px 16px;margin:20px 0 14px}
+#library-panel > summary::marker{color:var(--accent)}
+#library-status{font-size:15px;font-weight:600;color:var(--text)}
