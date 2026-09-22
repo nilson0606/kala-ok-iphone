@@ -13,7 +13,7 @@ test('Pages HTML and all transitive modules use one immutable release, bypassing
   const version=await buildSite(output,source);
   const html=await readFile(path.join(output,'index.html'),'utf8');
   const entries=[...html.matchAll(/(?:src|href)="([^"]+\.(?:css|mjs))"/g)].map(m=>m[1]);
-  assert.equal(entries.length,3);
+  assert.equal(entries.length,4);
   for(const url of entries)assert.ok(url.startsWith('assets/'+version+'/'));
   for(const asset of assets.filter(a=>a.endsWith('.mjs'))){
    const file=path.join(output,'assets',version,asset), content=await readFile(file,'utf8');

@@ -6,10 +6,11 @@
   <meta name="theme-color" content="#101411">
   <title>唱一下 · 桌機本機實驗室</title>
   <link rel="stylesheet" href="style.css">
+  <script type="module" src="theme.mjs"></script>
 </head>
 <body>
 <main>
-  <header><a href="./" class="brand"><span class="brand-icon">♪</span> 唱一下 <small>LOCAL LAB</small></a><span class="pill">本機分析 · 不存錄音</span></header>
+  <header><a href="./" class="brand"><span class="brand-icon">♪</span> 唱一下 <small>LOCAL LAB</small></a><div class="header-controls"><span class="pill">本機分析 · 不存錄音</span><label class="theme-picker" for="theme-select">配色<select id="theme-select"><option value="current">目前配色</option><option value="warm">暖色調</option></select></label></div></header>
   <nav class="section-nav" aria-label="頁面區段導覽">
     <a href="#player-section">播放器</a><a href="#prepare-section">歌曲準備</a><a href="#library-panel">歌曲庫</a><a href="#voice-section">收音</a><a href="#timing-section">延遲</a><a href="#score-section">評分／結算</a><a href="#local-section">本機設定</a><a href="manual.html" target="_blank" rel="noopener">操作手冊 ↗</a>
   </nav>
@@ -56,7 +57,7 @@
       <label for="input-device">收音麥克風</label><select id="input-device"><option value="">系統預設麥克風</option></select><p class="help">第一次允許收音後可選裝置。建議先用有線耳機或 USB 麥克風測試。</p>
       <div class="pitch-value"><span id="note">—</span><div><strong id="frequency">等待收音</strong><small id="cents">單音音高 · 65–1000 Hz</small></div></div>
       <div class="level-label"><span>收音音量</span><span id="level-text">— dBFS</span></div><meter id="level" min="0" max="1" value="0" aria-label="麥克風音量"></meter>
-      <div class="graph"><div class="graph-heading"><span>你的音高 · 最近 8 秒</span><span class="legend"><i></i> 即時音高</span></div><canvas id="pitch-chart" aria-label="最近八秒的麥克風音高曲線"></canvas><p>綠線是你的音高；藍線是原唱旋律。允許八度差時，兩線不一定重疊。</p></div>
+      <div class="graph"><div class="graph-heading"><span>你的音高 · 最近 8 秒</span><span class="legend"><i></i> 即時音高</span></div><canvas id="pitch-chart" aria-label="最近八秒的麥克風音高曲線"></canvas><p>亮色線是你的音高；藍線是原唱旋律。允許八度差時，兩線不一定重疊。</p></div>
       <div class="target-line">原唱音符 <strong id="target-note">—</strong><span id="live-feedback">等待歌曲基準</span></div>
       <div class="button-row"><button id="mic-start" type="button">開啟麥克風</button><button id="mic-stop" class="secondary" type="button" disabled>停止收音</button></div>
       <p id="mic-status" class="status" role="status">請先戴耳機，降低伴奏被麥克風收到的機會。</p>
@@ -123,7 +124,7 @@
     <p class="help">選「已演唱範圍」時，後面尚未唱到的部分不扣分；這段期間的漏唱、跳過仍計入。每輪開始後固定，重唱時可重新選擇。</p>
     <p id="take-difficulty" class="help" aria-live="polite">尚未開始演唱；每輪開始後固定難度。</p>
     <div class="score-grid"><div class="total"><strong id="total-score">—</strong><span>總分 / 100</span></div><div><strong id="pitch-score">—</strong><span>音準 · 60%</span></div><div><strong id="rhythm-score">—</strong><span>進拍 · 25%</span></div><div><strong id="coverage-score">—</strong><span>完整度 · 15%</span></div></div>
-    <div class="button-row"><button id="sing-start" disabled type="button">從頭開始唱</button><button id="finish-song" disabled type="button" class="secondary">結束並結算</button></div>
+    <div class="button-row score-actions"><button id="sing-start" disabled type="button">從頭開始唱</button><button id="finish-song" disabled type="button" class="secondary">結束並結算</button></div>
     <p id="score-status" class="status" role="status">準備歌曲並開啟麥克風後，按播放就開始評分。</p>
     <p class="footnote">暫停與緩衝不計分。漏唱與跳過的段落會降低分數；「整首歌曲」模式也會計入提前結束的剩餘段落。可在中途按「結束並結算」，或等影片播完自動結算。進拍分數依旋律起音估計，不是專業聲樂評鑑。</p>
     <details><summary>演唱紀錄 · 只存在這個瀏覽器</summary><ul id="score-history" class="score-history"></ul><button id="clear-history" class="secondary" type="button">清除演唱紀錄</button></details>

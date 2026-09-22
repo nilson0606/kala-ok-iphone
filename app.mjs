@@ -158,14 +158,19 @@ function readMic() {
   $('cents').textContent = note ? `${note.cents >= 0 ? '+' : ''}${note.cents} cents · 相對最近音名，非歌曲分數` : '單音音高 · 65–1000 Hz';
   $('level').value = Math.min(1, result.rms * 4); $('level-text').textContent = result.rms > 0 ? `${Math.max(-90, 20 * Math.log10(result.rms)).toFixed(0)} dBFS` : '— dBFS'; draw();
 }
+let chartPalette;
 function draw() {
+  if (!chartPalette) {
+    const style = getComputedStyle(document.documentElement);
+    chartPalette = { grid: style.getPropertyValue('--chart-grid').trim(), label: style.getPropertyValue('--chart-label').trim(), voice: style.getPropertyValue('--accent').trim() };
+  }
   const canvas = $('pitch-chart'), rect = canvas.getBoundingClientRect(), scale = window.devicePixelRatio || 1;
   canvas.width = Math.round(rect.width * scale); canvas.height = Math.round(rect.height * scale);
   const ctx = canvas.getContext('2d'); ctx.scale(scale, scale);
   const w = rect.width, h = rect.height, y = midi => 12 + (84 - midi) / 48 * (h - 24);
   ctx.font = '10px system-ui';
-  for (let m = 36; m <= 84; m += 12) { ctx.strokeStyle = '#2e392c'; ctx.beginPath(); ctx.moveTo(28, y(m)); ctx.lineTo(w, y(m)); ctx.stroke(); ctx.fillStyle = '#82907c'; ctx.fillText(`C${m / 12 - 1}`, 0, y(m) + 3); }
-  const now = performance.now() / 1000; ctx.strokeStyle = '#d8fa85'; ctx.lineWidth = 2; ctx.beginPath();
+  for (let m = 36; m <= 84; m += 12) { ctx.strokeStyle = chartPalette.grid; ctx.beginPath(); ctx.moveTo(28, y(m)); ctx.lineTo(w, y(m)); ctx.stroke(); ctx.fillStyle = chartPalette.label; ctx.fillText(`C${m / 12 - 1}`, 0, y(m) + 3); }
+  const now = performance.now() / 1000; ctx.strokeStyle = chartPalette.voice; ctx.lineWidth = 2; ctx.beginPath();
   let connected = false, last = 0;
   for (const p of history) {
     if (p.midi === null || now - p.time > 8) { connected = false; continue; }
@@ -187,6 +192,7 @@ function draw() {
     ctx.stroke();
   }
 }
+window.addEventListener('karaoke-theme-change', () => { chartPalette = null; draw(); });
 new ResizeObserver(draw).observe($('pitch-chart'));
 function stopBeats() { clearInterval(beatTimer); beatTimer = null; $('beat-toggle').textContent = '啟動節拍燈'; [...$('beats').children].forEach(d => d.classList.remove('active')); }
 function updateBeat() {

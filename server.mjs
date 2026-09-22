@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const staticRoot = path.resolve(process.env.KARAOKE_SITE_DIR || fileURLToPath(new URL('./',import.meta.url)));
 import { readFile } from 'node:fs/promises';
-const files = new Map([['/mask-editor.mjs', ['mask-editor.mjs', 'text/javascript']],['/manual.html', ['manual.html', 'text/html']],['/navigation.mjs', ['navigation.mjs', 'text/javascript']],['/calibration.mjs', ['calibration.mjs', 'text/javascript']],['/', ['index.html', 'text/html']], ['/index.html', ['index.html', 'text/html']], ['/style.css', ['style.css', 'text/css']], ['/app.mjs', ['app.mjs', 'text/javascript']], ['/audio.mjs', ['audio.mjs', 'text/javascript']], ['/session.mjs', ['session.mjs', 'text/javascript']], ['/scoring.mjs', ['scoring.mjs', 'text/javascript']]]);
+const files = new Map([['/theme.mjs', ['theme.mjs', 'text/javascript']],['/mask-editor.mjs', ['mask-editor.mjs', 'text/javascript']],['/manual.html', ['manual.html', 'text/html']],['/navigation.mjs', ['navigation.mjs', 'text/javascript']],['/calibration.mjs', ['calibration.mjs', 'text/javascript']],['/', ['index.html', 'text/html']], ['/index.html', ['index.html', 'text/html']], ['/style.css', ['style.css', 'text/css']], ['/app.mjs', ['app.mjs', 'text/javascript']], ['/audio.mjs', ['audio.mjs', 'text/javascript']], ['/session.mjs', ['session.mjs', 'text/javascript']], ['/scoring.mjs', ['scoring.mjs', 'text/javascript']]]);
 const server = http.createServer(async (req, res) => {
   if (!['GET', 'HEAD'].includes(req.method)) { res.writeHead(405); res.end(); return; }
   const pathname = new URL(req.url, 'http://localhost').pathname;
