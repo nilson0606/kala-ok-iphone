@@ -4,7 +4,7 @@ function applyTheme(value) {
   const theme = value === 'warm' ? 'warm' : 'current';
   document.documentElement.dataset.theme = theme;
   picker.value = theme;
-  document.querySelector('meta[name="theme-color"]').content = theme === 'warm' ? '#191310' : '#101411';
+  document.querySelector('meta[name="theme-color"]').content = theme === 'warm' ? '#191310' : '#0d1722';
   window.dispatchEvent(new Event('karaoke-theme-change'));
 }
 let saved;
