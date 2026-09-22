@@ -40,3 +40,5 @@ main{max-width:1360px}
 .progress-heading{flex-wrap:wrap}.progress-heading #prepare-device{overflow-wrap:anywhere}
 
 .prepare-buttons{flex-wrap:wrap}
+
+[hidden] { display: none !important; }

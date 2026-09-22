@@ -19,6 +19,16 @@
 
 重開機不會移除安裝，但需要重新啟動工具。Windows 重設／重灌或搬到新電腦後應重建 Python 虛擬環境，即使原工具資料夾仍在。若沒有 Python Launcher，可用 `setup-local.ps1 -PythonPath 'C:\path\to\python.exe'` 指定 Python 3.12。
 
+## 主唱／和音分離（選用）
+
+「聲曲分離模式」預設仍是人聲／伴奏。選「主唱／和音分離」時，先用 Demucs 取得全部人聲，再用 [audio-separator](https://github.com/nomadkaraoke/python-audio-separator) 的 Mel Band Roformer Karaoke 模型 `mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt` 估計主唱與和音；旋律基準只從主唱擷取。伴奏節拍分析維持原方式。這不是歌手身分辨識，齊唱、二重唱、疊軌仍可能分錯，請用試聽判斷是否適合該歌。
+
+第一次需額外下載約 913 MB 模型，保存於 `.runtime/models/lead`；之後重用。現有安裝先停止工具、更新程式碼、重跑 `setup-local.ps1` 再啟動，會安裝配對 TorchVision 0.20.1、audio-separator 0.47.0 與相關依賴。此模型的推論使用 PyTorch CUDA（可用時）；CPU ONNX Runtime 是套件匯入所需，不代表 Roformer 只能用 CPU。GPU 錯誤會用獨立 CPU 程序重試。
+
+勾選保留音軌時，主唱模式保存人聲、伴奏、主唱、和音四條本機 MP3。一般與主唱模式使用不同歌曲庫 ID，互不覆蓋；舊歌曲視為一般人聲模式。重新分離僅覆蓋所選模式，缺少任一必要音軌時不發布新結果。變更模式後需按「準備歌曲基準」或「重新分離並覆蓋」才生效。
+
+[HTML 操作手冊](https://nilson0606.github.io/kala-ok-iphone/manual.html) 可從主畫面上方的「操作手冊 ↗」開新分頁，涵蓋安裝、歌曲庫、分離試聽、評分範圍、再唱與常見問題。
+
 ## GPU 加速
 
 安裝腳本預設偵測 NVIDIA 顯示卡，安裝配對的 PyTorch／TorchAudio 2.5.1 CUDA 12.4 版（約 2.5 GB）；未偵測到則使用 CPU 版。既有 CPU 安裝可先停止本機工具，重新執行 `setup-local.ps1` 再啟動；模型與歌曲庫不會移除。可用 `setup-local.ps1 -Device cpu` 指定 CPU 套件，或 `-Device cuda` 指定 CUDA 套件。
@@ -59,6 +69,12 @@
 
 本機服務只綁定 `127.0.0.1:4174`，檢查 Host 與 Origin，工作 API 需要頁面向本機取得的記憶體權杖。允許來源為本站 GitHub Pages origin 與本機開發頁面。GitHub Pages 同帳號的網站共享 origin，請將該帳號下網站視為同一信任範圍。
 
+## 本次主唱模式驗證
+
+22 項 JavaScript 單元測試、15 項 Python 測試通過；Edge／Chrome 已驗證一般／主唱模式切換、四條音軌的瀏覽器解碼播放、重做、卸載，以及手冊新分頁與手機寬度排版。模擬管線確認一般模式使用全部人聲、主唱模式使用主唱建立基準，並清除未選擇保留的暫存產物。
+
+另以 8 秒合成音訊實際執行新模型，主唱及和音輸出均為 8 秒、44.1 kHz 雙聲道，完整解碼通過。此為短片段功能測試，沒有驗證整首歌的長時間負載或真人歌曲分離品質。
+
 ## 開發及測試
 
 ```powershell
@@ -81,7 +97,7 @@ node tests/library-browser-check.mjs
 
 ## 部署
 
-推送 main 後，GitHub Actions 執行單元測試，僅發布 `index.html`、`style.css`、`app.mjs`、`audio.mjs`、`session.mjs`、`scoring.mjs`、`calibration.mjs`。本機工具、測試檔案與 `.runtime` 不進 Pages。網頁程式更新後可能需 Ctrl+F5；本機工具更新後需重新啟動。
+推送 main 後，GitHub Actions 執行單元測試，僅發布 `index.html`、`manual.html`、`navigation.mjs`、`style.css`、`app.mjs`、`audio.mjs`、`session.mjs`、`scoring.mjs`、`calibration.mjs`。本機工具、測試檔案與 `.runtime` 不進 Pages。網頁程式更新後可能需 Ctrl+F5；本機工具更新後需重新啟動。
 
 `run-local-audio.ps1` 是開發診斷指令，會留下輸出供檢查，不是一般網頁流程；使用後自行清除該工作目錄。原始 `--input` 檔案不會被刪除。
 
@@ -89,4 +105,4 @@ node tests/library-browser-check.mjs
 
 資料夾選擇會開啟可見的 Windows 選擇視窗；網頁上的「取消資料夾選擇」只取消這個視窗，不需要卸載歌曲，也不刪除已保存的歌曲庫。等待超過一分鐘會自動解除，之後可重試或直接輸入路徑。
 
-歌曲準備顯示取得音訊、聲曲分離、建立基準、完成四個階段。分離百分比來自 Demucs 實際完成的推論片段；沒有可靠百分比的階段顯示不定進度，並非依時間假造百分比。資料夾選擇使用 Windows 檔案總管式視窗，只將使用者選定的路徑回傳網頁。
+歌曲準備顯示取得音訊、聲曲分離、建立基準、完成等階段（主唱模式另含主唱／和音分離）。分離百分比來自 Demucs 實際完成的推論片段；沒有可靠百分比的階段顯示不定進度，並非依時間假造百分比。資料夾選擇使用 Windows 檔案總管式視窗，只將使用者選定的路徑回傳網頁。

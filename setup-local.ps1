@@ -31,16 +31,16 @@ try {
     }
     $taskVariant = if ($taskUseCuda) { 'cu124' } else { 'cpu' }
     Write-Host "Installing PyTorch ($taskVariant). CUDA download is about 2.5 GB."
-    & $taskPython -m pip install --upgrade "torch==2.5.1+$taskVariant" "torchaudio==2.5.1+$taskVariant" --index-url "https://download.pytorch.org/whl/$taskVariant"
+    & $taskPython -m pip install --upgrade "torch==2.5.1+$taskVariant" "torchaudio==2.5.1+$taskVariant" "torchvision==0.20.1+$taskVariant" --index-url "https://download.pytorch.org/whl/$taskVariant"
     if ($LASTEXITCODE -ne 0) {
         if ($Device -ne 'auto' -or -not $taskUseCuda) { throw 'Could not install PyTorch.' }
         Write-Warning 'CUDA installation failed. Installing the CPU version instead.'
-        & $taskPython -m pip install --upgrade torch==2.5.1+cpu torchaudio==2.5.1+cpu --index-url https://download.pytorch.org/whl/cpu
+        & $taskPython -m pip install --upgrade torch==2.5.1+cpu torchaudio==2.5.1+cpu torchvision==0.20.1+cpu --index-url https://download.pytorch.org/whl/cpu
         if ($LASTEXITCODE -ne 0) { throw 'Could not install CPU PyTorch.' }
     }
-    & $taskPython -m pip install -r tools/requirements-audio.txt
+    & $taskPython -m pip install -r tools/requirements-audio.txt torch==2.5.1 torchaudio==2.5.1 torchvision==0.20.1
     if ($LASTEXITCODE -ne 0) { throw 'Could not install audio tools.' }
-    & $taskPython -c 'import torch, torchaudio, demucs, yt_dlp, soundfile; print("Local audio environment ready:", torch.__version__, "GPU: " + torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU")'
+    & $taskPython -c 'import torch, torchaudio, torchvision, demucs, yt_dlp, soundfile; from audio_separator.separator import Separator; print("Local audio environment ready:", torch.__version__, "GPU: " + torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU")'
     if ($LASTEXITCODE -ne 0) { throw 'Audio environment verification failed.' }
     Write-Host 'Ready. Run .\start-local.ps1 to open the web app.'
     Write-Host 'Model weights are downloaded on the first separation and kept in .runtime/models.'

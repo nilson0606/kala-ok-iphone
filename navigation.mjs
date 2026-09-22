@@ -11,7 +11,7 @@ function visit(hash) {
 }
 nav.addEventListener('click', event => {
   const link = event.target.closest('a');
-  if (!link || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+  if (!link || !link.hash || link.target === '_blank' || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
   event.preventDefault();
   history.replaceState(null, '', link.hash);
   visit(link.hash);

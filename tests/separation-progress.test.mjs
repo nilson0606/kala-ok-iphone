@@ -13,3 +13,12 @@ test('GPU progress resets on CPU fallback and keeps the fallback explanation', (
  assert.match(job.message,/GPU.*CPU/);
  updateSeparation(job, {progress:20}); assert.equal(job.progress,30);
 });
+
+test('lead stage starts a new progress range after Demucs completes', () => {
+ const job = {};
+ updateSeparation(job,{stage:'separating',device:'cuda',progress:100});
+ updateSeparation(job,{stage:'lead_separating',device:'cuda',progress:0});
+ assert.equal(job.progress,0); assert.match(job.message,/主唱與和音/);
+ updateSeparation(job,{stage:'lead_separating',progress:20});
+ assert.equal(job.progress,20);
+});

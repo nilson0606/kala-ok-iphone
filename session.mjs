@@ -27,8 +27,9 @@ export function createKaraokeSession(options) {
     $('prepare-song').disabled = locationBusy || libraryLocation?.configured === false || ['preparing', 'finishing', 'restarting'].includes(phase);
     for (const id of ['library-path','library-choose','library-use-path']) $(id).disabled = locationBusy || !!reference || ['preparing','finishing','restarting'].includes(phase);
     $('rebuild-song').disabled = !reference || !!take || ['preparing','finishing','restarting'].includes(phase);
+    $('vocal-mode').disabled = !!take || ['preparing', 'finishing', 'restarting'].includes(phase);
     $('keep-preview').disabled = ['preparing', 'finishing', 'restarting'].includes(phase);
-    for (const stem of ['vocals','accompaniment']) $('preview-' + stem).disabled = !reference?.hasPreview || ['preparing','finishing','restarting'].includes(phase);
+    for (const stem of ['vocals','accompaniment','lead','backing']) $('preview-' + stem).disabled = !reference?.hasPreview || (['lead','backing'].includes(stem) && reference?.vocalMode !== 'lead') || ['preparing','finishing','restarting'].includes(phase);
     $('library-list').querySelectorAll('button').forEach(button => { button.disabled = ['preparing','finishing','restarting'].includes(phase); if (button.dataset.songId) { if (button.dataset.songId === reference?.cacheId) button.setAttribute('aria-current', 'true'); else button.removeAttribute('aria-current'); } });
     previewAvailability();
     $('pitch-mode').disabled = !!take; $('score-range').disabled = !!take;
@@ -111,13 +112,14 @@ export function createKaraokeSession(options) {
   $('library-choose').addEventListener('click', () => chooseLocation(true));
   $('library-use-path').addEventListener('click', () => chooseLocation(false));
   function previewAvailability() {
+    $('lead-preview-buttons').hidden = reference?.vocalMode !== 'lead';
     const busy = ['preparing','finishing','restarting'].includes(phase);
     $('preview-build').hidden = !reference || !!reference.hasPreview;
     $('preview-build').disabled = busy || !!take;
     if (phase === 'preparing') $('preview-status').textContent = '正在準備歌曲，完成後才可試聽。';
     else if (!reference) $('preview-status').textContent = '請先載入歌曲，才能查看試聽音軌。';
     else if (!reference.hasPreview) $('preview-status').textContent = '這首歌只有評分基準，未保留人聲／伴奏音檔。' + (take ? '請先結束並結算，再補建試聽音軌。' : '可按「補建試聽音軌」重新分離一次並保存在本機；之後可直接試聽。');
-    else if (!previewUrl && !previewRequest) $('preview-status').textContent = '人聲與伴奏音軌已就緒，請選擇試聽。';
+    else if (!previewUrl && !previewRequest) $('preview-status').textContent = (reference.vocalMode === 'lead' ? '人聲、伴奏、主唱與和音音軌已就緒，請選擇試聽。' : '人聲與伴奏音軌已就緒，請選擇試聽。');
   }
   $('rebuild-song').addEventListener('click', () => {
     if (!reference || take || ['preparing','finishing','restarting'].includes(phase)) return;
@@ -129,6 +131,7 @@ export function createKaraokeSession(options) {
     if (!reference || reference.hasPreview || take || ['preparing','finishing','restarting'].includes(phase)) return;
     $('url').value = `https://www.youtube.com/watch?v=${reference.videoId}`;
     $('clip-seconds').value = String(reference.rangeSeconds);
+    $('vocal-mode').value = reference.vocalMode || 'all';
     $('keep-preview').checked = true;
     $('prepare-song').click();
   });
@@ -151,14 +154,14 @@ export function createKaraokeSession(options) {
       if (!response.ok) throw new Error('音軌不存在或已刪除，請勾選保留試聽後重新準備。');
       const blob = await response.blob(); if (serial !== previewSerial) return;
       previewUrl = URL.createObjectURL(blob); $('stem-audio').src = previewUrl; $('stem-audio').hidden = false;
-      $('preview-status').textContent = stem === 'vocals' ? '人聲試聽 · 本機音檔' : '伴奏試聽 · 本機音檔';
+      $('preview-status').textContent = ({vocals:'全部人聲',accompaniment:'伴奏',lead:'主唱',backing:'和音'}[stem]) + '試聽 · 本機音檔';
       await $('stem-audio').play();
     } catch (error) {
       if (serial === previewSerial) $('preview-status').textContent = error.name === 'NotAllowedError' ? '音軌已載入，請點音訊播放器的播放鍵。' : error.message;
     } finally { clearTimeout(timeout); }
   }
   $('stem-audio').addEventListener('play', () => { options.player()?.pauseVideo?.(); options.cancelCalibration?.(); });
-  for (const stem of ['vocals','accompaniment']) $('preview-' + stem).addEventListener('click', () => playPreview(stem));
+  for (const stem of ['vocals','accompaniment','lead','backing']) $('preview-' + stem).addEventListener('click', () => playPreview(stem));
   async function refreshLibrary() {
     $('library-refresh').disabled = true;
     try {
@@ -170,7 +173,7 @@ export function createKaraokeSession(options) {
       for (const song of songs) {
         const li = document.createElement('li'), title = document.createElement('strong'), detail = document.createElement('small');
         title.textContent = song.title;
-        detail.textContent = `${song.seconds ? '前 ' + song.seconds + ' 秒' : '完整歌曲'} · ${(song.bytes / 1024 / 1024).toFixed(2)} MB · ${song.hasPreview ? '含人聲／伴奏試聽' : '只有旋律基準'}`;
+        detail.textContent = `${song.seconds ? '前 ' + song.seconds + ' 秒' : '完整歌曲'} · ${song.vocalMode === 'lead' ? '主唱模式' : '一般人聲'} · ${(song.bytes / 1024 / 1024).toFixed(2)} MB · ${song.hasPreview ? (song.vocalMode === 'lead' ? '含主唱／和音等 4 軌試聽' : '含人聲／伴奏試聽') : '只有旋律基準'}`;
         const load = document.createElement('button'), remove = document.createElement('button');
         load.type = remove.type = 'button'; load.className = 'song-choice'; remove.className = 'secondary song-delete'; remove.textContent = '刪除';
         load.dataset.songId = song.id; load.setAttribute('aria-label', '載入 ' + song.title); load.append(title, detail);
@@ -179,7 +182,7 @@ export function createKaraokeSession(options) {
           if (['preparing','finishing','restarting'].includes(phase)) return;
           if (reference?.cacheId === song.id) { message('這首歌已載入，可直接按「從頭開始唱」。'); return; }
           $('url').value = `https://www.youtube.com/watch?v=${song.videoId}`;
-          $('clip-seconds').value = String(song.seconds);
+          $('clip-seconds').value = String(song.seconds); $('vocal-mode').value = song.vocalMode || 'all';
           $('prepare-song').click();
         });
         remove.addEventListener('click', async () => {
@@ -234,12 +237,13 @@ export function createKaraokeSession(options) {
     const panel = $('prepare-progress-panel'), bar = $('prepare-progress');
     panel.hidden = false;
     $('prepare-device').textContent = state.cached ? '本機快取' : state.device === 'cuda' ? `GPU · ${state.deviceName || 'NVIDIA CUDA'}` : state.device === 'cpu' ? (state.fallback ? 'CPU · GPU 失敗後重試' : 'CPU · 本機處理') : '本機處理';
-    const steps = ['download', 'separating', 'reference', 'ready'];
-    const stage = state.ready ? 'ready' : state.stage === 'validated' ? 'download' : state.stage === 'stem_validated' ? 'separating' : state.stage;
+    const steps = ['download', 'separating', 'lead_separating', 'reference', 'ready'];
+    $('lead-step').hidden = (state.vocalMode || $('vocal-mode').value) !== 'lead';
+    const stage = state.ready ? 'ready' : state.stage === 'validated' ? 'download' : state.stage === 'stem_validated' ? (state.progressStage || 'separating') : state.stage;
     const index = steps.indexOf(stage);
     [...$('prepare-steps').children].forEach((item, i) => { item.classList.toggle('done', i < index); item.classList.toggle('active', i === index); });
     if (state.ready) { bar.value = 100; $('prepare-progress-label').textContent = state.cached ? '已從歌曲庫載入' : '歌曲準備完成'; }
-    else if (stage === 'separating' && Number.isFinite(state.progress)) { bar.value = state.progress; $('prepare-progress-label').textContent = `人聲／伴奏分離 ${Math.round(state.progress)}%`; }
+    else if (['separating','lead_separating'].includes(stage) && Number.isFinite(state.progress)) { bar.value = state.progress; $('prepare-progress-label').textContent = `${stage === 'lead_separating' ? '主唱／和音' : '人聲／伴奏'}分離 ${Math.round(state.progress)}%`; }
     else { bar.removeAttribute('value'); $('prepare-progress-label').textContent = state.message || '正在準備…'; }
   }
   async function poll(id, current) {
@@ -252,11 +256,11 @@ export function createKaraokeSession(options) {
       if (state.ready) {
         const data = await api(`/jobs/${id}/reference`);
         if (current !== generation) return;
-        reference = { ...validateReference(data), duration: data.duration, beats: data.beats || [], bpm: data.bpm, cacheId: data.cacheId, hasPreview: data.hasPreview, rangeSeconds: data.rangeSeconds ?? Number($('clip-seconds').value) };
+        reference = { ...validateReference(data), duration: data.duration, beats: data.beats || [], bpm: data.bpm, cacheId: data.cacheId, hasPreview: data.hasPreview, vocalMode: data.vocalMode || 'all', rangeSeconds: data.rangeSeconds ?? Number($('clip-seconds').value) };
         if (reference.videoId !== loadedVideo) throw new Error('影片已切換，請重新準備歌曲。');
         phase = 'ready';
         $('prepare-status').textContent = `已就緒：${reference.title} · ${Math.round(reference.duration)} 秒 · ${state.cached ? '直接載入本機基準' : '已保存到本機'}${reference.hasPreview ? '，可試聽分離結果' : '，音檔已清除'}。`;
-        $('result-title').textContent = reference.title;
+        $('result-title').textContent = reference.title + (reference.vocalMode === 'lead' ? ' · 以主唱評分' : '');
         for (const id of ['total-score','pitch-score','rhythm-score','coverage-score']) $(id).textContent = '—';
         if (reference.beats.length && reference.bpm) {
           options.stopBeats(); $('bpm').value = reference.bpm; $('bpm').disabled = true; $('beat-toggle').disabled = true;
@@ -284,6 +288,7 @@ export function createKaraokeSession(options) {
     if (current !== generation) return;
     try {
       const helper = await ensureSession();
+      if ($('vocal-mode').value === 'lead' && !helper.features?.includes('lead-vocals')) throw new Error('本機工具需要更新才能使用主唱／和音分離，請更新工具包並重新執行 setup-local.ps1。');
       if (force && !helper.features?.includes('rebuild-song')) throw new Error('本機工具需要更新才能重新分離，請更新工具包並重新啟動。');
       if (!libraryLocation.configured) throw new Error('請先指定歌曲庫資料夾，再準備歌曲。');
       if (!await options.loadVideo()) throw new Error('播放器尚未就緒，請重新載入影片後再試。');
@@ -291,7 +296,7 @@ export function createKaraokeSession(options) {
       options.player()?.pauseVideo?.();
       await ensureSession();
       if (current !== generation) return;
-      const created = await api('/jobs', { method: 'POST', body: JSON.stringify({ videoId: id, seconds: Number($('clip-seconds').value), preview: $('keep-preview').checked, ...(force ? { force: true } : {}) }) });
+      const created = await api('/jobs', { method: 'POST', body: JSON.stringify({ videoId: id, seconds: Number($('clip-seconds').value), preview: $('keep-preview').checked, ...($('vocal-mode').value === 'lead' ? {vocalMode:'lead'} : {}), ...(force ? { force: true } : {}) }) });
       if (current !== generation) { await removeJob(created.id); return; }
       jobId = created.id; controls(); await poll(jobId, current);
     } catch (error) {

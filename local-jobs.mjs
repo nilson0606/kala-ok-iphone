@@ -39,23 +39,25 @@ async function erase(job) {
   jobs.delete(job.id);
 }
 export function updateSeparation(job, data) {
+  if (data.stage && job.progressStage !== data.stage) { job.progress = 0; job.progressStage = data.stage; }
   if (['cuda', 'cpu'].includes(data.device)) {
     if (job.device !== data.device) job.progress = 0;
     job.device = data.device; job.deviceName = String(data.deviceName || data.device).slice(0, 120);
     job.fallback = data.fallback === true;
   }
   if (Number.isFinite(data.progress)) job.progress = Math.max(job.progress || 0, Math.min(100, Math.max(0, data.progress)));
-  job.message = job.fallback ? 'GPU 無法完成分離，已改用 CPU 重新處理…' : job.device === 'cuda' ? '使用 GPU 在本機分離人聲與伴奏…' : '使用 CPU 在本機分離人聲與伴奏…';
+  const subject = data.stage === 'lead_separating' ? '主唱與和音' : '人聲與伴奏';
+  job.message = job.fallback ? 'GPU 無法完成分離，已改用 CPU 重新處理…' : job.device === 'cuda' ? `使用 GPU 在本機分離${subject}…` : `使用 CPU 在本機分離${subject}…`;
 }
 function summary(job) {
-  return { id: job.id, stage: job.stage, message: job.message, progress: job.progress ?? null, device: job.device ?? null, deviceName: job.deviceName ?? null, fallback: !!job.fallback, ready: !!job.reference,
+  return { id: job.id, stage: job.stage, progressStage: job.progressStage, message: job.message, progress: job.progress ?? null, vocalMode: job.vocalMode, device: job.device ?? null, deviceName: job.deviceName ?? null, fallback: !!job.fallback, ready: !!job.reference,
     title: job.reference?.title, duration: job.reference?.duration, bpm: job.reference?.bpm,
     voicedSeconds: job.reference?.voicedSeconds, audioCleared: !!job.reference && !job.reference.hasPreview, cacheId: job.cacheId, cached: !!job.cached, hasPreview: !!job.reference?.hasPreview };
 }
-async function start(videoId, seconds, preview = false, force = false) {
+async function start(videoId, seconds, preview = false, force = false, vocalMode = 'all') {
   const id = randomUUID().replaceAll('-', '');
-  const key = cacheKey(videoId, seconds);
-  const job = { cacheId: key, id, stage: 'starting', message: '啟動本機工作…', updated: Date.now(), reference: null, deleted: false };
+  const key = cacheKey(videoId, seconds, vocalMode);
+  const job = { vocalMode, cacheId: key, id, stage: 'starting', message: '啟動本機工作…', updated: Date.now(), reference: null, deleted: false };
   jobs.set(id, job);
   const cached = await library.get(key);
   if (job.deleted) return job;
@@ -65,25 +67,26 @@ async function start(videoId, seconds, preview = false, force = false) {
   }
   const args = [path.join(root, 'tools', 'audio_pipeline.py'), '--url', `https://www.youtube.com/watch?v=${videoId}`, '--seconds', String(seconds), '--separate', '--reference', '--job-id', id];
   if (preview) args.push('--preview');
+  if (vocalMode === 'lead') args.push('--vocal-mode', 'lead');
   const child = spawn(python, args, { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
   job.child = child;
   let pending = '', stderr = '', events = Promise.resolve();
-  const names = { download: '在本機取得 YouTube 音訊…', validated: '格式與完整解碼已確認。', separating: '在本機分離人聲與伴奏…', stem_validated: '分離音軌已驗證。', reference: '建立旋律與節拍基準…' };
+  const names = { download: '在本機取得 YouTube 音訊…', validated: '格式與完整解碼已確認。', separating: '在本機分離人聲與伴奏…', lead_separating: '在本機分離主唱與和音…', stem_validated: '分離音軌已驗證。', reference: '建立旋律與節拍基準…' };
   async function event(line) {
     if (job.deleted) return;
     let data; try { data = JSON.parse(line); } catch { return; }
     job.updated = Date.now();
     if (names[data.stage]) { job.stage = data.stage; job.message = names[data.stage]; }
-    if (data.stage === 'separating') updateSeparation(job, data);
+    if (['separating','lead_separating'].includes(data.stage)) updateSeparation(job, data);
     if (data.stage === 'failed') { job.stage = 'failed'; job.message = String(data.message || '處理失敗').slice(-1000); }
     if (data.stage === 'complete') {
       try {
         const value = JSON.parse(await readFile(path.join(jobsRoot, id, 'reference.json'), 'utf8'));
         const validated = validateReference(value);
-        if (validated.videoId !== videoId || !Number.isFinite(value.duration) || value.duration <= 0 || value.duration > 905) throw new Error('Invalid reference');
+        if ((value.vocalMode || 'all') !== vocalMode || validated.videoId !== videoId || !Number.isFinite(value.duration) || value.duration <= 0 || value.duration > 905) throw new Error('Invalid reference');
         const beats = Array.isArray(value.beats) ? value.beats.filter(t => Number.isFinite(t) && t >= 0 && t <= value.duration).sort((a,b)=>a-b) : [];
         if (job.deleted) return;
-        const reference = { ...validated, duration: value.duration, bpm: Number.isFinite(value.bpm) ? value.bpm : null, beats, voicedSeconds: value.voicedSeconds, quality: 'experimental-separated-vocals', rangeSeconds: seconds };
+        const reference = { ...validated, duration: value.duration, bpm: Number.isFinite(value.bpm) ? value.bpm : null, beats, voicedSeconds: value.voicedSeconds, vocalMode, quality: vocalMode === 'lead' ? 'experimental-lead-vocals' : 'experimental-separated-vocals', rangeSeconds: seconds };
         job.persisting = library.save(key, reference, path.join(jobsRoot, id), preview, { cancelled: () => job.deleted, replace: force });
         job.reference = await job.persisting;
         if (job.deleted) return;
@@ -118,7 +121,7 @@ async function start(videoId, seconds, preview = false, force = false) {
   return job;
 }
 export async function handleLocalJobs(req, res) {
-  if (req.url === '/session' && req.method === 'GET') { json(res, 200, { token, features: ['library', 'stem-preview', 'library-location', 'separation-progress', 'rebuild-song'] }); return true; }
+  if (req.url === '/session' && req.method === 'GET') { json(res, 200, { token, features: ['library', 'stem-preview', 'library-location', 'separation-progress', 'rebuild-song', 'lead-vocals'] }); return true; }
   if (!req.url.startsWith('/jobs') && !req.url.startsWith('/library') && req.url !== '/shutdown') return false;
   if (req.headers['x-karaoke-token'] !== token) { json(res, 403, { error: 'Session token required' }); return true; }
   if (req.url === '/library/location' && req.method === 'GET') { json(res, 200, { ...await location.get(), selectionPending: !!folderPicker }); return true; }
@@ -156,7 +159,7 @@ export async function handleLocalJobs(req, res) {
   }
   if (req.url === '/library' && req.method === 'GET') { json(res, 200, { songs: await library.list() }); return true; }
   if (req.url.startsWith('/library/')) {
-    const match = /^\/library\/([\w-]{11}_(?:0|15|30|60)_v1)(?:\/(reference|vocals|accompaniment))?$/.exec(req.url);
+    const match = /^\/library\/([\w-]{11}_(?:0|15|30|60)(?:_lead)?_v1)(?:\/(reference|vocals|accompaniment|lead|backing))?$/.exec(req.url);
     if (!match) { json(res, 400, { error: '無效的本機歌曲。' }); return true; }
     const [, id, asset] = match;
     if (req.method === 'DELETE' && !asset) {
@@ -166,7 +169,7 @@ export async function handleLocalJobs(req, res) {
     if (req.method === 'GET' && asset === 'reference') {
       const value = await library.get(id); json(res, value ? 200 : 404, value || { error: '本機基準已刪除，請重新準備。' }); return true;
     }
-    if (req.method === 'GET' && ['vocals','accompaniment'].includes(asset)) {
+    if (req.method === 'GET' && ['vocals','accompaniment','lead','backing'].includes(asset)) {
       const bytes = await library.audio(id, asset);
       if (!bytes) json(res, 404, { error: '尚未保留試聽音軌，請勾選試聽後重新準備。' });
       else { res.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Content-Length': bytes.length, 'X-Content-Type-Options': 'nosniff' }); res.end(bytes); }
@@ -183,7 +186,8 @@ export async function handleLocalJobs(req, res) {
       const data = await body(req);
       if (!/^[\w-]{11}$/.test(data.videoId || '') || ![0, 15, 30, 60].includes(data.seconds)) { json(res, 400, { error: '影片網址或片段長度無效。' }); return true; }
       if ([...jobs.values()].some(j => !['ready','failed'].includes(j.stage))) { json(res, 409, { error: '已有歌曲正在處理，請先取消或等待完成。' }); return true; }
-      const job = await start(data.videoId, data.seconds, data.preview === true, data.force === true); json(res, 202, summary(job));
+      if (data.vocalMode !== undefined && !['all','lead'].includes(data.vocalMode)) { json(res, 400, { error: '無效的分離模式。' }); return true; }
+      const job = await start(data.videoId, data.seconds, data.preview === true, data.force === true, data.vocalMode || 'all'); json(res, 202, summary(job));
     } catch { json(res, 400, { error: '本機工作請求無效。' }); }
     return true;
   }

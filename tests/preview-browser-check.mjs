@@ -18,7 +18,7 @@ const server = spawn(process.execPath, ['server.mjs'], { cwd: root, windowsHide:
 let browser;
 try {
   await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('error', reject); server.stderr.once('data', chunk => reject(new Error(chunk.toString()))); });
-  browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || 'msedge', headless: true, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${fixture}`] });
+  browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || 'msedge', headless: true, args: ['--disable-gpu', '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${fixture}`] });
   const context = await browser.newContext();
   await context.addInitScript(() => {
     window.YT = { Player: class {
@@ -38,21 +38,23 @@ try {
   let serial = 0;
   await page.route('http://127.0.0.1:4174/**', async route => {
     const req=route.request(), url=new URL(req.url()); let value={};
-    if(url.pathname==='/session')value={token:'fixture',features:['library','library-location','separation-progress','rebuild-song']};
+    if(url.pathname==='/session')value={token:'fixture',features:['library','library-location','separation-progress','rebuild-song','lead-vocals']};
     else if(url.pathname==='/library/location')value={configured:true,path:'C:/fixture-only'};
     else if(url.pathname==='/library')value={songs:[]};
     else if(req.method()==='DELETE') {removed.push(url.pathname);value={cleared:true};}
     else if(req.method()==='POST') {requests.push(req.postDataJSON());value={id:String(++serial).padStart(32,'0')};}
     else if(url.pathname.endsWith('/reference')) {
       const request=requests[Number(url.pathname.split('/')[2])-1];
-      value={version:1,videoId:request.videoId,cacheId:request.videoId+'_30_v1',title:'Preview fixture',step:.1,duration:30,frames:Array(300).fill(440),rangeSeconds:request.seconds,hasPreview:Number(url.pathname.split('/')[2]) > 1,beats:[],bpm:0};
+      value={version:1,videoId:request.videoId,vocalMode:request.vocalMode||'all',cacheId:request.videoId+(request.vocalMode==='lead'?'_30_lead_v1':'_30_v1'),title:'Preview fixture',step:.1,duration:30,frames:Array(300).fill(440),rangeSeconds:request.seconds,hasPreview:Number(url.pathname.split('/')[2]) > 1,beats:[],bpm:0};
     } else if(url.pathname.startsWith('/library/')) {
       await route.fulfill({body:data,contentType:'audio/wav',headers:{'Access-Control-Allow-Origin':'http://localhost:4173'}});return;
     } else value={stage:'ready',ready:true,message:'ready'};
     await route.fulfill({json:value,headers:{'Access-Control-Allow-Origin':'http://localhost:4173'}});
   });
   await page.goto('http://localhost:4173/');
+  assert.equal(await page.locator('#vocal-mode').inputValue(),'all');
   await page.locator('#preview-panel summary').click();
+  assert.ok(await page.locator('#lead-preview-buttons').isHidden());
   assert.match(await page.locator('#preview-status').textContent(),/先載入歌曲/);
   assert.ok(await page.locator('#stem-audio').isHidden());
   await page.locator('#url').fill('https://www.youtube.com/watch?v=M7lc1UVf-VE');
@@ -81,9 +83,38 @@ try {
   await page.locator('#rebuild-song').click();
   await page.waitForFunction(()=>!document.querySelector('#preview-vocals').disabled);
   assert.deepEqual(requests[2],{videoId:'M7lc1UVf-VE',seconds:30,preview:true,force:true});
+  await page.locator('#vocal-mode').selectOption('lead');
+  await page.locator('#rebuild-song').click();
+  await page.waitForFunction(()=>!document.querySelector('#preview-lead').disabled);
+  assert.deepEqual(requests[3],{videoId:'M7lc1UVf-VE',seconds:30,preview:true,vocalMode:'lead',force:true});
+  assert.ok(await page.locator('#lead-preview-buttons').isVisible());
+  assert.match(await page.locator('#result-title').textContent(),/以主唱評分/);
+  for (const stem of ['lead','backing']) {
+    await page.locator('#preview-'+stem).click();
+    await page.waitForFunction(()=>{const a=document.querySelector('#stem-audio');return a.duration>2&&a.currentTime>.1&&!a.paused;});
+  }
+  await page.locator('#vocal-mode').selectOption('all');
+  await page.locator('#prepare-song').click();
+  await page.waitForFunction(()=>!document.querySelector('#preview-vocals').disabled);
+  assert.ok(await page.locator('#lead-preview-buttons').isHidden());
+  assert.equal(requests[4].vocalMode,undefined);
+  // The manual must open a separate tab and every table-of-contents link must resolve.
+  const opened=context.waitForEvent('page');
+  await page.locator('a[href="manual.html"]').click();
+  const manual=await opened; await manual.waitForLoadState();
+  assert.ok(manual.url().endsWith('/manual.html'));
+  assert.equal(await manual.locator('h1').textContent(),'從選歌，到唱完一輪');
+  assert.equal(await manual.evaluate(()=>window.opener),null);
+  assert.ok(await manual.evaluate(()=>[...document.querySelectorAll('nav a')].every(a=>document.querySelector(a.hash))));
+  await manual.setViewportSize({width:1440,height:1000});
+  await manual.screenshot({path:'test-results/manual-desktop.png'});
+  await manual.setViewportSize({width:390,height:844});
+  assert.ok(await manual.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  await manual.screenshot({path:'test-results/manual-mobile.png'});
+  await manual.close();
   await page.locator('#cancel-song').click();
   assert.ok(await page.locator('#stem-audio').isHidden());
   assert.equal(await page.locator('#stem-audio').getAttribute('src'),null);
   assert.deepEqual(errors,[]);
-  console.log('Missing preview explanation, upgrade of original song/range, both decoded previews and unloading passed.');
+  console.log('Default/lead modes, missing-preview upgrade, four decoded previews, rebuild, unload, manual new tab and responsive layout passed.');
 } finally {await browser?.close();server.kill();await rm(fixture,{force:true});}

@@ -56,15 +56,15 @@ def run(args, timeout=300, env=None):
     return result.stdout
 
 
-def separation_progress(line):
+def separation_progress(line, stage="separating"):
     # Demucs reports completed inference chunks in seconds. Ignore model-download bars.
-    if 'seconds' not in line:
+    if 'seconds' not in line and not (stage == 'lead_separating' and ('it/s' in line or 's/it' in line)):
         return None
     match = re.search(r'(\d{1,3})%\|', line)
     return min(100, int(match.group(1))) if match else None
 
 
-def run_separation(args, timeout=1800, env=None):
+def run_separation(args, timeout=1800, env=None, stage="separating"):
     tail = []
     last = [-1]
     child = subprocess.Popen([str(arg) for arg in args], stdout=subprocess.PIPE,
@@ -76,10 +76,10 @@ def run_separation(args, timeout=1800, env=None):
             tail.append(line)
             if len(tail) > 20:
                 tail.pop(0)
-            percent = separation_progress(line)
+            percent = separation_progress(line, stage)
             if percent is not None and percent > last[0]:
                 last[0] = percent
-                emit('separating', progress=percent)
+                emit(stage, progress=percent)
     reader = threading.Thread(target=read_progress, daemon=True)
     reader.start()
     try:
@@ -132,6 +132,29 @@ def separate_audio(audio, job, mode='auto'):
     return selected
 
 
+
+def separate_lead(vocals, job, mode='auto'):
+    selected = choose_device(mode)
+    def attempt(device):
+        env = {**os.environ, 'OMP_NUM_THREADS': '4'}
+        if device == 'cpu':
+            env['CUDA_VISIBLE_DEVICES'] = ''
+        run_separation([sys.executable, ROOT / 'tools' / 'lead_separator.py',
+                        '--input', vocals, '--output', job / 'lead-stems',
+                        '--models', ROOT / '.runtime' / 'models' / 'lead'],
+                       env=env, stage='lead_separating')
+    emit('lead_separating', progress=0, **selected)
+    try:
+        attempt(selected['device'])
+    except RuntimeError as error:
+        if selected['device'] != 'cuda' or not any(word in str(error).lower() for word in ('cuda', 'cudnn', 'cublas', 'out of memory', 'no kernel image')):
+            raise
+        selected = {'device':'cpu', 'deviceName':'CPU', 'fallback':True}
+        emit('lead_separating', progress=0, **selected)
+        attempt('cpu')
+    return selected
+
+
 def validate_audio(path: Path):
     if not path.is_file() or path.stat().st_size == 0:
         raise ValueError('Audio file is missing or empty.')
@@ -160,6 +183,7 @@ def main():
     parser.add_argument('--separate', action='store_true', help='Separate vocals and accompaniment locally with Demucs')
     parser.add_argument('--reference', action='store_true', help='Build a temporary melody/beat reference')
     parser.add_argument('--preview', action='store_true', help='Keep compressed stems for optional local listening')
+    parser.add_argument('--vocal-mode', choices=['all', 'lead'], default='all')
     parser.add_argument('--device', choices=['auto', 'cpu'], default='auto', help='Prefer CUDA when available, or force CPU')
     parser.add_argument('--job-id', help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -170,6 +194,8 @@ def main():
             parser.error(f'{command} is required on PATH')
     if args.reference and (not args.url or not args.separate):
         parser.error('--reference requires --url and --separate')
+    if args.vocal_mode == 'lead' and not args.separate:
+        parser.error('--vocal-mode lead requires --separate')
     if args.preview and not args.reference:
         parser.error('--preview requires --reference')
     if args.job_id and not re.fullmatch(r'[a-f0-9]{32}', args.job_id):
@@ -212,16 +238,31 @@ def main():
                     raise ValueError(f'{name} duration does not match source')
                 report['stems'][name] = {'path': str(file), **result}
                 emit('stem_validated', stem=name, **result)
+        if args.separate:
+            stems = {'vocals': stem_dir / 'vocals.wav', 'accompaniment': stem_dir / 'no_vocals.wav'}
+            if args.vocal_mode == 'lead':
+                report['leadSeparation'] = separate_lead(stems['vocals'], job, args.device)
+                for name in ['lead', 'backing']:
+                    file = job / 'lead-stems' / (name + '.wav')
+                    result = validate_audio(file)
+                    if abs(result['duration'] - original['duration']) > .15:
+                        raise ValueError(f'{name} duration does not match source')
+                    stems[name] = file
+                    report['stems'][name] = {'path': str(file), **result}
+                    emit('stem_validated', stem=name, **result)
         if args.reference:
             emit('reference')
             from reference_audio import build_reference
-            report['reference'] = build_reference(stem_dir / 'vocals.wav', stem_dir / 'no_vocals.wav', video_id, title, job / 'reference.json')
+            report['reference'] = build_reference(stems['lead'] if args.vocal_mode == 'lead' else stems['vocals'], stems['accompaniment'], video_id, title, job / 'reference.json')
+            value = json.loads((job / 'reference.json').read_text(encoding='utf-8'))
+            value['vocalMode'] = args.vocal_mode
+            (job / 'reference.json').write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
             if args.preview:
-                for name, filename in [('vocals', 'vocals.wav'), ('accompaniment', 'no_vocals.wav')]:
-                    run(['ffmpeg', '-v', 'error', '-i', stem_dir / filename, '-codec:a', 'libmp3lame', '-b:a', '128k', job / (name + '.mp3')])
+                for name, file in stems.items():
+                    run(['ffmpeg', '-v', 'error', '-i', file, '-codec:a', 'libmp3lame', '-b:a', '128k', job / (name + '.mp3')])
             # Retain only opted-in compressed stems; discard source and large WAVs.
             for generated in list(job.iterdir()):
-                if generated.name not in (['reference.json', 'vocals.mp3', 'accompaniment.mp3'] if args.preview else ['reference.json']):
+                if generated.name not in (['reference.json'] + [name + '.mp3' for name in stems] if args.preview else ['reference.json']):
                     if generated.is_dir():
                         if generated.resolve().parent != job.resolve():
                             raise ValueError('Unexpected temporary directory')

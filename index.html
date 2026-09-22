@@ -11,7 +11,7 @@
 <main>
   <header><a href="./" class="brand"><span class="brand-icon">♪</span> 唱一下 <small>LOCAL LAB</small></a><span class="pill">本機分析 · 不存錄音</span></header>
   <nav class="section-nav" aria-label="頁面區段導覽">
-    <a href="#player-section">播放器</a><a href="#prepare-section">歌曲準備</a><a href="#library-panel">歌曲庫</a><a href="#voice-section">收音</a><a href="#timing-section">延遲</a><a href="#score-section">評分／結算</a><a href="#local-section">本機設定</a>
+    <a href="#player-section">播放器</a><a href="#prepare-section">歌曲準備</a><a href="#library-panel">歌曲庫</a><a href="#voice-section">收音</a><a href="#timing-section">延遲</a><a href="#score-section">評分／結算</a><a href="#local-section">本機設定</a><a href="manual.html" target="_blank" rel="noopener">操作手冊 ↗</a>
   </nav>
   <section class="intro"><p class="eyebrow">DESKTOP KARAOKE / 本機練唱版</p><h1>看著唱。<br><span>看見你的聲音。</span></h1><p>貼上歌曲，讓本機準備旋律基準。戴上耳機，看著 YouTube 唱，唱完留下歌名與分數。</p></section>
   <div id="environment" class="notice" role="status"></div>
@@ -57,12 +57,13 @@
     <section id="prepare-section" tabindex="-1" class="card prepare-card">
       <div class="section-top"><h2>準備這首歌</h2><span class="subtle">本機分析與歌曲庫</span></div>
       <label for="clip-seconds">分析範圍</label><select id="clip-seconds"><option value="0">完整歌曲（最長 15 分鐘）</option><option value="15">先試前 15 秒</option><option value="30">先試前 30 秒</option><option value="60">先試前 60 秒</option></select>
+      <label for="vocal-mode">聲曲分離模式</label><select id="vocal-mode"><option value="all">人聲／伴奏分離（目前方式，預設）</option><option value="lead">主唱／和音分離（進階選用）</option></select><p class="help">主唱模式會先分離人聲，再嘗試分出主唱與和音，只用主唱建立音高基準。第一次需下載額外模型；效果請先試聽確認。兩種模式分開保存。</p>
       <label class="check-option"><input id="keep-preview" type="checkbox" checked> 保留分離音軌，供本機試聽（選用）</label>
       <p class="help">歌曲基準會自動保存在這台電腦；同一影片與分析範圍可直接重用。預設保留人聲／伴奏音檔供試聽；取消勾選則只存評分基準。</p>
       <div class="button-row prepare-buttons"><button id="prepare-song" type="button">準備歌曲基準</button><button id="rebuild-song" class="secondary" type="button" disabled>重新分離並覆蓋</button><button id="cancel-song" class="secondary" type="button" disabled>取消／卸載</button></div>
       <p class="footnote">「重新分離並覆蓋」會重新處理這首歌，成功後替換基準與音軌；失敗的新結果不保存。</p>
       <div id="prepare-progress-panel" class="prepare-progress-panel" hidden>
-        <ol id="prepare-steps" class="prepare-steps"><li>取得音訊</li><li>聲曲分離</li><li>建立基準</li><li>可開始唱</li></ol>
+        <ol id="prepare-steps" class="prepare-steps"><li>取得音訊</li><li>聲曲分離</li><li id="lead-step" hidden>主唱／和音</li><li>建立基準</li><li>可開始唱</li></ol>
         <div class="progress-heading"><span id="prepare-progress-label" role="status">正在準備…</span><span id="prepare-device">本機處理</span></div>
         <progress id="prepare-progress" max="100" aria-labelledby="prepare-progress-label"></progress>
       </div>
@@ -71,6 +72,7 @@
       <details id="preview-panel"><summary>分離結果試聽（選用）</summary>
         <p class="help">勾選保留音軌後準備歌曲。試聽會暫停 YouTube，不參與評分；音檔只在本機。</p>
         <div class="button-row"><button id="preview-vocals" class="secondary" disabled>試聽人聲</button><button id="preview-accompaniment" class="secondary" disabled>試聽伴奏</button></div>
+        <div class="button-row" id="lead-preview-buttons" hidden><button id="preview-lead" class="secondary" disabled>試聽主唱</button><button id="preview-backing" class="secondary" disabled>試聽和音</button></div>
         <audio id="stem-audio" controls preload="none" hidden></audio><p id="preview-status" class="status" role="status">請先載入歌曲，才能查看試聽音軌。</p><button id="preview-build" class="secondary" type="button" hidden>補建試聽音軌</button>
       </details>
       <details id="library-panel" tabindex="-1"><summary>本機歌單 · 點一首就載入</summary>

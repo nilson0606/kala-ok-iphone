@@ -1,5 +1,5 @@
 import unittest
-from audio_pipeline import normalize_url, separation_progress, run_separation, choose_device, separate_audio
+from audio_pipeline import normalize_url, separation_progress, run_separation, choose_device, separate_audio, separate_lead
 from unittest.mock import patch, MagicMock
 import sys
 from pathlib import Path
@@ -23,6 +23,10 @@ class ProgressTests(unittest.TestCase):
         self.assertEqual(separation_progress('100%|##########| 15.6/15.6 [00:04<00:00, 3.9seconds/s]'), 100)
         self.assertIsNone(separation_progress('50%|##### | 40M/80M [00:02, 20MB/s]'))
         self.assertIsNone(separation_progress('Loading model'))
+
+    def test_lead_progress_excludes_weight_downloads(self):
+        self.assertEqual(separation_progress(' 20%|## | 2/10 [00:01<00:03, 2.02it/s]', 'lead_separating'),20)
+        self.assertIsNone(separation_progress(' 20%|## | 182M/913M [00:04<00:17, 40.8MiB/s]', 'lead_separating'))
 
     def test_subprocess_progress_is_forwarded_in_order(self):
         script = "import sys; print('\\r  0%| | 0/2 [00:00<?, ?seconds/s]\\r 50%|# | 1/2 [00:01<00:01, 1seconds/s]\\r100%|##| 2/2 [00:02<00:00, 1seconds/s]', file=sys.stderr, flush=True)"
@@ -52,6 +56,14 @@ class DeviceTests(unittest.TestCase):
             self.assertEqual([c.args[0][c.args[0].index('-d')+1] for c in run.call_args_list], ['cuda', 'cpu'])
             self.assertEqual([c.kwargs['progress'] for c in emit.call_args_list], [0, 0])
             self.assertTrue(emit.call_args_list[-1].kwargs['fallback'])
+
+    def test_lead_fallback_disables_cuda_in_fresh_worker(self):
+        with patch('audio_pipeline.choose_device', return_value={'device':'cuda','deviceName':'Test GPU'}), patch('audio_pipeline.run_separation', side_effect=[RuntimeError('CUDA out of memory'),None]) as run, patch('audio_pipeline.emit') as emit:
+            result=separate_lead(Path('vocals.wav'),Path('test-job'))
+            self.assertEqual(result['device'],'cpu')
+            self.assertEqual(run.call_args_list[1].kwargs['env']['CUDA_VISIBLE_DEVICES'],'')
+            self.assertEqual(run.call_args_list[1].kwargs['stage'],'lead_separating')
+            self.assertEqual([c.kwargs['progress'] for c in emit.call_args_list],[0,0])
 
     def test_gpu_success_does_not_retry(self):
         with patch('audio_pipeline.choose_device', return_value={'device': 'cuda', 'deviceName': 'Test GPU'}), patch('audio_pipeline.run_separation') as run, patch('audio_pipeline.emit'):
