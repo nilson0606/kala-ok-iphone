@@ -115,3 +115,10 @@ node tests/library-browser-check.mjs
 既有歌曲沿用原目錄，不做遷移；沒有 `separationModel` 的舊資料視為 `demucs`。BS-RoFormer 的快取 ID 多 `_bs-roformer`，同影片、範圍與人聲模式可並存。覆蓋及刪除只影響對應版本；歌單、就緒及試聽訊息標示模型。補建試聽保持目前載入的模型。新版頁面遇到不支援模型選擇的舊本機工具會明確要求更新，不會默默使用 Demucs。
 
 本次驗證：26 項 JavaScript、18 項 Python 測試；Edge／Chrome 的正式版資產通過模型切換、舊庫載入、試聽、主唱模式、覆蓋、舊工具攔截與手冊檢查。另以 8 秒合成音訊實際執行 BS-RoFormer，兩條 WAV 都輸出 8 秒、44.1 kHz 雙聲道並完整解碼。短測只確認功能，不代表真人歌曲分離品質或長時間負載驗證。
+
+
+### BS-RoFormer MP3 匯出修正
+
+audio-separator 0.47 的 soundfile writer 會沿用輸入 subtype，MP3 的 `MPEG_LAYER_III` 在輸出 WAV 時造成 `Supported file format but unsupported encoding`，發生於推論完成之後。`tools/roformer_audio.py` 現在先將壓縮來源解碼為浮點 WAV，合法 PCM／float WAV 則直接使用；暫存解碼檔在成功或失敗後均清理。沒有更換模型或改寫既有歌曲庫。
+
+回歸測試使用真正 MP3、FFmpeg、soundfile 與套件原本的 WAV writer，確認兩條輸出可保存；另以 8 秒 MP3 實際執行 BS-RoFormer，兩條浮點 WAV 及試聽 MP3 完整解碼通過。先前僅用 WAV 的短測無法覆蓋這個錯誤。helper 現在也記錄工作 ID、快取版本、處理階段與失敗摘要到本機 stdout 日誌，避免前端清除工作後失去錯誤線索；不記錄音訊或認證權杖。
