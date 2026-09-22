@@ -29,6 +29,7 @@ export function createKaraokeSession(options) {
     $('keep-preview').disabled = ['preparing', 'finishing', 'restarting'].includes(phase);
     for (const stem of ['vocals','accompaniment']) $('preview-' + stem).disabled = !reference?.hasPreview || ['preparing','finishing','restarting'].includes(phase);
     $('library-list').querySelectorAll('button').forEach(button => { button.disabled = ['preparing','finishing','restarting'].includes(phase); if (button.dataset.songId) { if (button.dataset.songId === reference?.cacheId) button.setAttribute('aria-current', 'true'); else button.removeAttribute('aria-current'); } });
+    previewAvailability();
     $('pitch-mode').disabled = !!take; $('score-range').disabled = !!take;
     $('url').disabled = ['preparing', 'finishing', 'restarting'].includes(phase);
     $('clip-seconds').disabled = ['preparing', 'finishing', 'restarting'].includes(phase);
@@ -107,11 +108,27 @@ export function createKaraokeSession(options) {
   });
   $('library-choose').addEventListener('click', () => chooseLocation(true));
   $('library-use-path').addEventListener('click', () => chooseLocation(false));
+  function previewAvailability() {
+    const busy = ['preparing','finishing','restarting'].includes(phase);
+    $('preview-build').hidden = !reference || !!reference.hasPreview;
+    $('preview-build').disabled = busy || !!take;
+    if (phase === 'preparing') $('preview-status').textContent = '正在準備歌曲，完成後才可試聽。';
+    else if (!reference) $('preview-status').textContent = '請先載入歌曲，才能查看試聽音軌。';
+    else if (!reference.hasPreview) $('preview-status').textContent = '這首歌只有評分基準，未保留人聲／伴奏音檔。' + (take ? '請先結束並結算，再補建試聽音軌。' : '可按「補建試聽音軌」重新分離一次並保存在本機；之後可直接試聽。');
+    else if (!previewUrl && !previewRequest) $('preview-status').textContent = '人聲與伴奏音軌已就緒，請選擇試聽。';
+  }
+  $('preview-build').addEventListener('click', () => {
+    if (!reference || reference.hasPreview || take || ['preparing','finishing','restarting'].includes(phase)) return;
+    $('url').value = `https://www.youtube.com/watch?v=${reference.videoId}`;
+    $('clip-seconds').value = String(reference.rangeSeconds);
+    $('keep-preview').checked = true;
+    $('prepare-song').click();
+  });
   function stopPreview() {
     previewSerial++; previewRequest?.abort(); previewRequest = null;
-    const audio = $('stem-audio'); audio.pause(); audio.removeAttribute('src'); audio.load();
+    const audio = $('stem-audio'); audio.hidden = true; audio.pause(); audio.removeAttribute('src'); audio.load();
     if (previewUrl) URL.revokeObjectURL(previewUrl); previewUrl = null;
-    $('preview-status').textContent = '尚未載入試聽音軌。';
+    previewAvailability();
   }
   async function playPreview(stem) {
     if (!reference?.hasPreview || !reference.cacheId) return;
@@ -125,7 +142,7 @@ export function createKaraokeSession(options) {
       const response = await fetch(`${BASE}/library/${id}/${stem}`, { headers: { 'X-Karaoke-Token': token }, credentials: 'omit', signal: controller.signal });
       if (!response.ok) throw new Error('音軌不存在或已刪除，請勾選保留試聽後重新準備。');
       const blob = await response.blob(); if (serial !== previewSerial) return;
-      previewUrl = URL.createObjectURL(blob); $('stem-audio').src = previewUrl;
+      previewUrl = URL.createObjectURL(blob); $('stem-audio').src = previewUrl; $('stem-audio').hidden = false;
       $('preview-status').textContent = stem === 'vocals' ? '人聲試聽 · 本機音檔' : '伴奏試聽 · 本機音檔';
       await $('stem-audio').play();
     } catch (error) {
@@ -227,7 +244,7 @@ export function createKaraokeSession(options) {
       if (state.ready) {
         const data = await api(`/jobs/${id}/reference`);
         if (current !== generation) return;
-        reference = { ...validateReference(data), duration: data.duration, beats: data.beats || [], bpm: data.bpm, cacheId: data.cacheId, hasPreview: data.hasPreview };
+        reference = { ...validateReference(data), duration: data.duration, beats: data.beats || [], bpm: data.bpm, cacheId: data.cacheId, hasPreview: data.hasPreview, rangeSeconds: data.rangeSeconds ?? Number($('clip-seconds').value) };
         if (reference.videoId !== loadedVideo) throw new Error('影片已切換，請重新準備歌曲。');
         phase = 'ready';
         $('prepare-status').textContent = `已就緒：${reference.title} · ${Math.round(reference.duration)} 秒 · ${state.cached ? '直接載入本機基準' : '已保存到本機'}${reference.hasPreview ? '，可試聽分離結果' : '，音檔已清除'}。`;

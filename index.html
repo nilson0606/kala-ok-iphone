@@ -70,7 +70,7 @@
       <details id="preview-panel"><summary>分離結果試聽（選用）</summary>
         <p class="help">勾選保留音軌後準備歌曲。試聽會暫停 YouTube，不參與評分；音檔只在本機。</p>
         <div class="button-row"><button id="preview-vocals" class="secondary" disabled>試聽人聲</button><button id="preview-accompaniment" class="secondary" disabled>試聽伴奏</button></div>
-        <audio id="stem-audio" controls preload="none"></audio><p id="preview-status" class="status">尚未載入試聽音軌。</p>
+        <audio id="stem-audio" controls preload="none" hidden></audio><p id="preview-status" class="status" role="status">請先載入歌曲，才能查看試聽音軌。</p><button id="preview-build" class="secondary" type="button" hidden>補建試聽音軌</button>
       </details>
       <details id="library-panel" tabindex="-1"><summary>本機歌單 · 點一首就載入</summary>
         <button id="library-refresh" class="secondary">重新整理歌曲庫</button><p id="library-status" class="status">啟動本機工具後可查看已保存歌曲。</p><ul id="library-list" class="library-list"></ul>
