@@ -47,7 +47,7 @@ try {
       } else await route.fallback();
     });
   }
-  let serial = 0, supportModels = true;
+  let serial = 0, supportModels = true, firstPoll = 0;
   const library = new Map();
   await page.route('http://127.0.0.1:4174/**', async route => {
     const req=route.request(), url=new URL(req.url()); let value={};
@@ -62,7 +62,8 @@ try {
       library.set(value.cacheId,value);
     } else if(url.pathname.startsWith('/library/')) {
       await route.fulfill({body:data,contentType:'audio/wav',headers:{'Access-Control-Allow-Origin':site}});return;
-    } else value={stage:'ready',ready:true,message:'ready'};
+    } else if(url.pathname==='/jobs/'+String(1).padStart(32,'0') && firstPoll++===0) value={stage:'separating',progress:100,ready:false,message:'分離中'};
+    else value={stage:'ready',ready:true,message:'ready'};
     await route.fulfill({json:value,headers:{'Access-Control-Allow-Origin':site}});
   });
   await page.goto(site+'/');
@@ -75,6 +76,11 @@ try {
   await page.locator('#url').fill('https://www.youtube.com/watch?v=M7lc1UVf-VE');
   await page.locator('#clip-seconds').selectOption('30');
   await page.locator('#prepare-song').click();
+  await page.waitForFunction(()=>document.querySelector('#prepare-progress-label').textContent.includes('推論 100%'));
+  assert.match(await page.locator('#prepare-progress-label').textContent(),/尚未就緒/);
+  assert.equal(await page.locator('#prepare-progress').getAttribute('value'),null);
+  assert.ok(await page.locator('#preview-vocals').isDisabled());
+  assert.ok(await page.locator('#prepare-song').isDisabled());
   await page.waitForFunction(()=>document.querySelector('#prepare-status').textContent.startsWith('已就緒'));
   assert.ok(await page.locator('#keep-preview').isChecked());
   assert.equal(requests[0].preview,true);

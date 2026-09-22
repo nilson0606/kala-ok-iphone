@@ -264,7 +264,12 @@ export function createKaraokeSession(options) {
     const index = steps.indexOf(stage);
     [...$('prepare-steps').children].forEach((item, i) => { item.classList.toggle('done', i < index); item.classList.toggle('active', i === index); });
     if (state.ready) { bar.value = 100; $('prepare-progress-label').textContent = state.cached ? '已從歌曲庫載入' : '歌曲準備完成'; }
-    else if (['separating','lead_separating'].includes(stage) && Number.isFinite(state.progress)) { bar.value = state.progress; $('prepare-progress-label').textContent = `${stage === 'lead_separating' ? '主唱／和音' : '人聲／伴奏'}分離 ${Math.round(state.progress)}%`; }
+    else if (state.stage === 'stem_validated') { bar.removeAttribute('value'); $('prepare-progress-label').textContent = '分離音軌驗證中；還需建立基準及保存，尚未就緒。'; }
+    else if (['separating','lead_separating'].includes(stage) && Number.isFinite(state.progress)) {
+      const subject = stage === 'lead_separating' ? '主唱／和音' : '人聲／伴奏';
+      if (state.progress >= 100) { bar.removeAttribute('value'); $('prepare-progress-label').textContent = `${subject}推論 100%；正在完成音軌，尚未就緒。`; }
+      else { bar.value = state.progress; $('prepare-progress-label').textContent = `${subject}分離 ${Math.round(state.progress)}%（本階段）`; }
+    }
     else { bar.removeAttribute('value'); $('prepare-progress-label').textContent = state.message || '正在準備…'; }
   }
   async function poll(id, current) {

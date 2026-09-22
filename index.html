@@ -62,6 +62,7 @@
       <label class="check-option"><input id="keep-preview" type="checkbox" checked> 保留分離音軌，供本機試聽（選用）</label>
       <p class="help">歌曲基準會自動保存在這台電腦；同一影片、分析範圍、模型與模式可直接重用。預設保留人聲／伴奏音檔供試聽；取消勾選則只存評分基準。</p>
       <div class="button-row prepare-buttons"><button id="prepare-song" type="button">準備歌曲基準</button><button id="rebuild-song" class="secondary" type="button" disabled>重新分離並覆蓋</button><button id="cancel-song" class="secondary" type="button" disabled>取消／卸載</button></div>
+      <p class="help">分離百分比只代表目前階段。達到 100% 後仍需完成音軌、建立基準並保存；顯示「已就緒」且試聽按鈕亮起，才算全部完成。</p>
       <p class="footnote">「重新分離並覆蓋」會重新處理這首歌，成功後只替換所選模型、模式與範圍的基準與音軌；失敗的新結果不保存。</p>
       <div id="prepare-progress-panel" class="prepare-progress-panel" hidden>
         <ol id="prepare-steps" class="prepare-steps"><li>取得音訊</li><li>聲曲分離</li><li id="lead-step" hidden>主唱／和音</li><li>建立基準</li><li>可開始唱</li></ol>
