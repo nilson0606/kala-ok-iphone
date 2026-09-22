@@ -67,6 +67,18 @@ test('helper enforces setup, auth and idle-only changes; selected library surviv
     assert.equal(job.cached, true);
     assert.equal((await request('/library/location', 'POST', { path: second })).status, 409);
     await request('/jobs/' + job.id, 'DELETE');
+    const rebuilt = await (await request('/jobs', 'POST', { videoId:'M7lc1UVf-VE', seconds:30, force:true })).json();
+    assert.equal(rebuilt.cached, false, 'force must bypass an existing song cache');
+    let failed;
+    for(let attempt=0; attempt<50; attempt++) {
+      failed=await (await request('/jobs/'+rebuilt.id)).json();
+      if(failed.stage==='failed')break;
+      await new Promise(resolve=>setTimeout(resolve,20));
+    }
+    assert.equal(failed.stage,'failed','isolated test helper intentionally has no Python runtime');
+    assert.equal((await library.get(id)).title,'Retained');
+    await request('/jobs/'+rebuilt.id,'DELETE');
+
     assert.equal((await request('/library/location', 'POST', { path: second })).status, 200);
     assert.equal((await (await request('/library')).json()).songs.length, 0);
     await request('/library/location', 'POST', { path: first });

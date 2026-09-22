@@ -38,3 +38,5 @@ main{max-width:1360px}
 @media(max-width:999px){.layout{grid-template-columns:minmax(0,1fr)}}
 
 .progress-heading{flex-wrap:wrap}.progress-heading #prepare-device{overflow-wrap:anywhere}
+
+.prepare-buttons{flex-wrap:wrap}

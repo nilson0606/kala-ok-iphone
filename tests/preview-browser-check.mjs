@@ -38,14 +38,14 @@ try {
   let serial = 0;
   await page.route('http://127.0.0.1:4174/**', async route => {
     const req=route.request(), url=new URL(req.url()); let value={};
-    if(url.pathname==='/session')value={token:'fixture',features:['library','library-location','separation-progress']};
+    if(url.pathname==='/session')value={token:'fixture',features:['library','library-location','separation-progress','rebuild-song']};
     else if(url.pathname==='/library/location')value={configured:true,path:'C:/fixture-only'};
     else if(url.pathname==='/library')value={songs:[]};
     else if(req.method()==='DELETE') {removed.push(url.pathname);value={cleared:true};}
     else if(req.method()==='POST') {requests.push(req.postDataJSON());value={id:String(++serial).padStart(32,'0')};}
     else if(url.pathname.endsWith('/reference')) {
       const request=requests[Number(url.pathname.split('/')[2])-1];
-      value={version:1,videoId:request.videoId,cacheId:request.videoId+'_30_v1',title:'Preview fixture',step:.1,duration:30,frames:Array(300).fill(440),rangeSeconds:request.seconds,hasPreview:request.preview,beats:[],bpm:0};
+      value={version:1,videoId:request.videoId,cacheId:request.videoId+'_30_v1',title:'Preview fixture',step:.1,duration:30,frames:Array(300).fill(440),rangeSeconds:request.seconds,hasPreview:Number(url.pathname.split('/')[2]) > 1,beats:[],bpm:0};
     } else if(url.pathname.startsWith('/library/')) {
       await route.fulfill({body:data,contentType:'audio/wav',headers:{'Access-Control-Allow-Origin':'http://localhost:4173'}});return;
     } else value={stage:'ready',ready:true,message:'ready'};
@@ -59,6 +59,8 @@ try {
   await page.locator('#clip-seconds').selectOption('30');
   await page.locator('#prepare-song').click();
   await page.waitForFunction(()=>document.querySelector('#prepare-status').textContent.startsWith('已就緒'));
+  assert.ok(await page.locator('#keep-preview').isChecked());
+  assert.equal(requests[0].preview,true);
   assert.match(await page.locator('#preview-status').textContent(),/未保留/);
   assert.ok(await page.locator('#preview-vocals').isDisabled());
   assert.ok(await page.locator('#preview-build').isEnabled());
@@ -76,6 +78,9 @@ try {
     await page.waitForFunction(()=>{const a=document.querySelector('#stem-audio');return a.duration>2&&a.currentTime>.1&&!a.paused;});
     assert.ok(await page.locator('#stem-audio').isVisible());
   }
+  await page.locator('#rebuild-song').click();
+  await page.waitForFunction(()=>!document.querySelector('#preview-vocals').disabled);
+  assert.deepEqual(requests[2],{videoId:'M7lc1UVf-VE',seconds:30,preview:true,force:true});
   await page.locator('#cancel-song').click();
   assert.ok(await page.locator('#stem-audio').isHidden());
   assert.equal(await page.locator('#stem-audio').getAttribute('src'),null);

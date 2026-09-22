@@ -52,14 +52,14 @@ function summary(job) {
     title: job.reference?.title, duration: job.reference?.duration, bpm: job.reference?.bpm,
     voicedSeconds: job.reference?.voicedSeconds, audioCleared: !!job.reference && !job.reference.hasPreview, cacheId: job.cacheId, cached: !!job.cached, hasPreview: !!job.reference?.hasPreview };
 }
-async function start(videoId, seconds, preview = false) {
+async function start(videoId, seconds, preview = false, force = false) {
   const id = randomUUID().replaceAll('-', '');
   const key = cacheKey(videoId, seconds);
   const job = { cacheId: key, id, stage: 'starting', message: '啟動本機工作…', updated: Date.now(), reference: null, deleted: false };
   jobs.set(id, job);
   const cached = await library.get(key);
   if (job.deleted) return job;
-  if (cached && (!preview || cached.hasPreview)) {
+  if (!force && cached && (!preview || cached.hasPreview)) {
     job.reference = cached; job.cached = true; job.stage = 'ready'; job.message = '已從本機載入基準，不需重新分析。';
     return job;
   }
@@ -84,7 +84,7 @@ async function start(videoId, seconds, preview = false) {
         const beats = Array.isArray(value.beats) ? value.beats.filter(t => Number.isFinite(t) && t >= 0 && t <= value.duration).sort((a,b)=>a-b) : [];
         if (job.deleted) return;
         const reference = { ...validated, duration: value.duration, bpm: Number.isFinite(value.bpm) ? value.bpm : null, beats, voicedSeconds: value.voicedSeconds, quality: 'experimental-separated-vocals', rangeSeconds: seconds };
-        job.persisting = library.save(key, reference, path.join(jobsRoot, id), preview);
+        job.persisting = library.save(key, reference, path.join(jobsRoot, id), preview, { cancelled: () => job.deleted, replace: force });
         job.reference = await job.persisting;
         if (job.deleted) return;
         job.stage = 'ready'; job.message = preview ? '基準與試聽音軌已保存到本機。' : '基準已保存到本機，暫存音檔已清除。';
@@ -118,7 +118,7 @@ async function start(videoId, seconds, preview = false) {
   return job;
 }
 export async function handleLocalJobs(req, res) {
-  if (req.url === '/session' && req.method === 'GET') { json(res, 200, { token, features: ['library', 'stem-preview', 'library-location', 'separation-progress'] }); return true; }
+  if (req.url === '/session' && req.method === 'GET') { json(res, 200, { token, features: ['library', 'stem-preview', 'library-location', 'separation-progress', 'rebuild-song'] }); return true; }
   if (!req.url.startsWith('/jobs') && !req.url.startsWith('/library') && req.url !== '/shutdown') return false;
   if (req.headers['x-karaoke-token'] !== token) { json(res, 403, { error: 'Session token required' }); return true; }
   if (req.url === '/library/location' && req.method === 'GET') { json(res, 200, { ...await location.get(), selectionPending: !!folderPicker }); return true; }
@@ -183,7 +183,7 @@ export async function handleLocalJobs(req, res) {
       const data = await body(req);
       if (!/^[\w-]{11}$/.test(data.videoId || '') || ![0, 15, 30, 60].includes(data.seconds)) { json(res, 400, { error: '影片網址或片段長度無效。' }); return true; }
       if ([...jobs.values()].some(j => !['ready','failed'].includes(j.stage))) { json(res, 409, { error: '已有歌曲正在處理，請先取消或等待完成。' }); return true; }
-      const job = await start(data.videoId, data.seconds, data.preview === true); json(res, 202, summary(job));
+      const job = await start(data.videoId, data.seconds, data.preview === true, data.force === true); json(res, 202, summary(job));
     } catch { json(res, 400, { error: '本機工作請求無效。' }); }
     return true;
   }

@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile, rename, copyFile, readdir, stat, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { validateReference } from './scoring.mjs';
 
 export function cacheKey(videoId, seconds) {
@@ -28,21 +29,37 @@ export class LocalLibrary {
       return { ...value, ...reference, cacheId: id, hasPreview: preview };
     } catch { return null; }
   }
-  async save(id, reference, source, preview) {
+  async save(id, reference, source, preview, { cancelled = () => false, replace = false } = {}) {
     const dir = this.directory(id);
     validateReference(reference);
-    await mkdir(dir, { recursive: true });
+    await mkdir(this.root, { recursive: true });
     const existing = await this.get(id);
-    if (preview) {
-      for (const name of ['vocals', 'accompaniment']) {
-        await copyFile(path.join(source, name + '.mp3'), path.join(dir, name + '.tmp'));
-        await rename(path.join(dir, name + '.tmp'), path.join(dir, name + '.mp3'));
+    const suffix = randomUUID();
+    const staging = path.join(this.root, '.pending-' + suffix), backup = path.join(this.root, '.backup-' + suffix);
+    if ([staging, backup].some(target => path.dirname(path.resolve(target)) !== this.root)) throw new Error('Invalid staging path');
+    let moved = false, committed = false;
+    await mkdir(staging);
+    try {
+      const keepExistingAudio = !replace && !preview && !!existing?.hasPreview;
+      if (preview || keepExistingAudio) {
+        for (const name of ['vocals', 'accompaniment']) {
+          const input = path.join(preview ? source : dir, name + '.mp3');
+          if (!(await stat(input)).size) throw new Error('Empty preview file');
+          await copyFile(input, path.join(staging, name + '.mp3'));
+        }
       }
+      const value = { ...reference, cacheVersion: 1, hasPreview: preview || keepExistingAudio, savedAt: new Date().toISOString(), cacheId: id };
+      await writeFile(path.join(staging, 'reference.json'), JSON.stringify(value), 'utf8');
+      if (cancelled()) throw new Error('Save cancelled');
+      // Publish only a complete result. Keep the old directory until replacement succeeds.
+      if (await stat(dir).catch(error => { if (error.code === 'ENOENT') return null; throw error; })) { await rename(dir, backup); moved = true; }
+      try { await rename(staging, dir); committed = true; }
+      catch (error) { if (moved) { await rename(backup, dir); moved = false; } throw error; }
+      return value;
+    } finally {
+      await rm(staging, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => {});
+      if (committed && moved) await rm(backup, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => {});
     }
-    const value = { ...reference, cacheVersion: 1, hasPreview: preview || !!existing?.hasPreview, savedAt: new Date().toISOString(), cacheId: id };
-    await writeFile(path.join(dir, 'reference.tmp'), JSON.stringify(value), 'utf8');
-    await rename(path.join(dir, 'reference.tmp'), path.join(dir, 'reference.json'));
-    return value;
   }
   async list() {
     await mkdir(this.root, { recursive: true });

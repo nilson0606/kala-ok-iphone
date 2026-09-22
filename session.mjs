@@ -26,6 +26,7 @@ export function createKaraokeSession(options) {
     if (phase === 'finishing') { $('mic-start').disabled = true; $('mic-stop').disabled = true; }
     $('prepare-song').disabled = locationBusy || libraryLocation?.configured === false || ['preparing', 'finishing', 'restarting'].includes(phase);
     for (const id of ['library-path','library-choose','library-use-path']) $(id).disabled = locationBusy || !!reference || ['preparing','finishing','restarting'].includes(phase);
+    $('rebuild-song').disabled = !reference || !!take || ['preparing','finishing','restarting'].includes(phase);
     $('keep-preview').disabled = ['preparing', 'finishing', 'restarting'].includes(phase);
     for (const stem of ['vocals','accompaniment']) $('preview-' + stem).disabled = !reference?.hasPreview || ['preparing','finishing','restarting'].includes(phase);
     $('library-list').querySelectorAll('button').forEach(button => { button.disabled = ['preparing','finishing','restarting'].includes(phase); if (button.dataset.songId) { if (button.dataset.songId === reference?.cacheId) button.setAttribute('aria-current', 'true'); else button.removeAttribute('aria-current'); } });
@@ -72,6 +73,7 @@ export function createKaraokeSession(options) {
     if (!data.token || !data.features?.includes('separation-progress')) throw new Error('本機工具需要更新，請重新下載工具包，停止舊工具後再執行 start-local.ps1。');
     token = data.token;
     renderLocation(await api('/library/location'));
+    return data;
   }
   function renderLocation(value) {
     libraryLocation = value;
@@ -117,6 +119,12 @@ export function createKaraokeSession(options) {
     else if (!reference.hasPreview) $('preview-status').textContent = '這首歌只有評分基準，未保留人聲／伴奏音檔。' + (take ? '請先結束並結算，再補建試聽音軌。' : '可按「補建試聽音軌」重新分離一次並保存在本機；之後可直接試聽。');
     else if (!previewUrl && !previewRequest) $('preview-status').textContent = '人聲與伴奏音軌已就緒，請選擇試聽。';
   }
+  $('rebuild-song').addEventListener('click', () => {
+    if (!reference || take || ['preparing','finishing','restarting'].includes(phase)) return;
+    $('url').value = `https://www.youtube.com/watch?v=${reference.videoId}`;
+    $('clip-seconds').value = String(reference.rangeSeconds);
+    prepareSong(true);
+  });
   $('preview-build').addEventListener('click', () => {
     if (!reference || reference.hasPreview || take || ['preparing','finishing','restarting'].includes(phase)) return;
     $('url').value = `https://www.youtube.com/watch?v=${reference.videoId}`;
@@ -171,7 +179,7 @@ export function createKaraokeSession(options) {
           if (['preparing','finishing','restarting'].includes(phase)) return;
           if (reference?.cacheId === song.id) { message('這首歌已載入，可直接按「從頭開始唱」。'); return; }
           $('url').value = `https://www.youtube.com/watch?v=${song.videoId}`;
-          $('clip-seconds').value = String(song.seconds); $('keep-preview').checked = song.hasPreview;
+          $('clip-seconds').value = String(song.seconds);
           $('prepare-song').click();
         });
         remove.addEventListener('click', async () => {
@@ -266,7 +274,7 @@ export function createKaraokeSession(options) {
       $('install-guide').open = true;
     }
   }
-  $('prepare-song').addEventListener('click', async () => {
+  async function prepareSong(force = false) {
     const id = youtubeId($('url').value.trim());
     if (!id) { $('prepare-status').textContent = '請先填入有效的 YouTube 影片網址。'; return; }
     const clearing = clear('正在連接本機工具…');
@@ -275,14 +283,15 @@ export function createKaraokeSession(options) {
     await clearing;
     if (current !== generation) return;
     try {
-      await ensureSession();
+      const helper = await ensureSession();
+      if (force && !helper.features?.includes('rebuild-song')) throw new Error('本機工具需要更新才能重新分離，請更新工具包並重新啟動。');
       if (!libraryLocation.configured) throw new Error('請先指定歌曲庫資料夾，再準備歌曲。');
       if (!await options.loadVideo()) throw new Error('播放器尚未就緒，請重新載入影片後再試。');
       if (current !== generation) return;
       options.player()?.pauseVideo?.();
       await ensureSession();
       if (current !== generation) return;
-      const created = await api('/jobs', { method: 'POST', body: JSON.stringify({ videoId: id, seconds: Number($('clip-seconds').value), preview: $('keep-preview').checked }) });
+      const created = await api('/jobs', { method: 'POST', body: JSON.stringify({ videoId: id, seconds: Number($('clip-seconds').value), preview: $('keep-preview').checked, ...(force ? { force: true } : {}) }) });
       if (current !== generation) { await removeJob(created.id); return; }
       jobId = created.id; controls(); await poll(jobId, current);
     } catch (error) {
@@ -290,7 +299,8 @@ export function createKaraokeSession(options) {
       phase = 'idle'; $('prepare-progress-panel').hidden = true; $('prepare-status').textContent = '無法準備歌曲：' + (error instanceof TypeError || error.name === 'TimeoutError' ? '請先啟動本機工具，並允許本機網路存取。' : error.message);
       $('install-guide').open = true; controls();
     }
-  });
+  }
+  $('prepare-song').addEventListener('click', () => prepareSong());
   $('cancel-song').addEventListener('click', () => { options.player()?.pauseVideo?.(); clear(); });
   $('sing-start').addEventListener('click', async () => {
     if (!reference || phase === 'restarting') return;

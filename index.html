@@ -57,9 +57,10 @@
     <section id="prepare-section" tabindex="-1" class="card prepare-card">
       <div class="section-top"><h2>準備這首歌</h2><span class="subtle">本機分析與歌曲庫</span></div>
       <label for="clip-seconds">分析範圍</label><select id="clip-seconds"><option value="0">完整歌曲（最長 15 分鐘）</option><option value="15">先試前 15 秒</option><option value="30">先試前 30 秒</option><option value="60">先試前 60 秒</option></select>
-      <label class="check-option"><input id="keep-preview" type="checkbox"> 保留分離音軌，供本機試聽（選用）</label>
-      <p class="help">歌曲基準會自動保存在這台電腦；同一影片與分析範圍可直接重用。勾選試聽才額外保留人聲／伴奏音檔。</p>
-      <div class="button-row prepare-buttons"><button id="prepare-song" type="button">準備歌曲基準</button><button id="cancel-song" class="secondary" type="button" disabled>取消／卸載</button></div>
+      <label class="check-option"><input id="keep-preview" type="checkbox" checked> 保留分離音軌，供本機試聽（選用）</label>
+      <p class="help">歌曲基準會自動保存在這台電腦；同一影片與分析範圍可直接重用。預設保留人聲／伴奏音檔供試聽；取消勾選則只存評分基準。</p>
+      <div class="button-row prepare-buttons"><button id="prepare-song" type="button">準備歌曲基準</button><button id="rebuild-song" class="secondary" type="button" disabled>重新分離並覆蓋</button><button id="cancel-song" class="secondary" type="button" disabled>取消／卸載</button></div>
+      <p class="footnote">「重新分離並覆蓋」會重新處理這首歌，成功後替換基準與音軌；失敗的新結果不保存。</p>
       <div id="prepare-progress-panel" class="prepare-progress-panel" hidden>
         <ol id="prepare-steps" class="prepare-steps"><li>取得音訊</li><li>聲曲分離</li><li>建立基準</li><li>可開始唱</li></ol>
         <div class="progress-heading"><span id="prepare-progress-label" role="status">正在準備…</span><span id="prepare-device">本機處理</span></div>
