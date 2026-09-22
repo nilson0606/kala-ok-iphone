@@ -74,11 +74,17 @@ def beat_grid(audio, rate=16000):
     return round(60 / (best_lag * .02), 1), beats
 
 
-def build_reference(vocals, accompaniment, video_id, title, output):
+def build_reference(vocals, accompaniment, video_id, title, output, pitch_method='yin', device='auto', progress=lambda value: None):
     audio = pcm(vocals)
     step, window = .1, 2048
-    pad = np.pad(audio, (window // 2, window // 2))
-    frames = [pitch(pad[start:start + window]) for start in range(0, len(audio), 1600)]
+    if pitch_method == 'rmvpe':
+        from rmvpe_pitch import rmvpe_frames
+        frames = rmvpe_frames(audio, Path(__file__).resolve().parents[1] / '.runtime/models/rmvpe', device, progress)
+    elif pitch_method == 'yin':
+        pad = np.pad(audio, (window // 2, window // 2))
+        frames = [pitch(pad[start:start + window]) for start in range(0, len(audio), 1600)]
+    else:
+        raise ValueError('Invalid pitch method')
     # Reject isolated detections; keep only stable runs of at least 200 ms.
     for i, value in enumerate(frames.copy()):
         if value is None:
@@ -94,6 +100,6 @@ def build_reference(vocals, accompaniment, video_id, title, output):
     bpm, beats = beat_grid(pcm(accompaniment))
     reference = {'version': 1, 'videoId': video_id, 'title': title[:300], 'step': step, 'frames': frames,
                  'duration': round(len(audio) / 16000, 3), 'bpm': bpm, 'beats': beats,
-                 'quality': 'experimental-separated-vocals', 'voicedSeconds': round(voiced, 1)}
+                 'pitchMethod': pitch_method, 'quality': 'experimental-separated-vocals', 'voicedSeconds': round(voiced, 1)}
     Path(output).write_text(json.dumps(reference, ensure_ascii=False), encoding='utf-8')
     return {'title': reference['title'], 'duration': reference['duration'], 'voicedSeconds': reference['voicedSeconds'], 'bpm': bpm}

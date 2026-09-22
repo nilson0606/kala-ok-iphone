@@ -112,7 +112,7 @@ test('model versions preserve legacy IDs and isolate replacement, preview access
 });
 
 
-test('saved masks survive reopen and rebuild, remain version-specific, and never alter audio or raw melody', async () => {
+test('saved masks survive reopen/rebuild and are shared across models without altering audio or raw melody', async () => {
   const dir=await mkdtemp(path.join(tmpdir(),'karaoke-library-'));
   try {
     const source=path.join(dir,'source');await mkdir(source);
@@ -125,7 +125,7 @@ test('saved masks survive reopen and rebuild, remain version-specific, and never
     await library.setMasks(id,masks);
     const reopened=new LocalLibrary(library.root);
     assert.deepEqual((await reopened.get(id)).masks,masks);
-    assert.deepEqual((await reopened.get(bs)).masks,[]);
+    assert.deepEqual((await reopened.get(bs)).masks,masks);
     assert.deepEqual((await reopened.get(id)).frames,ref.frames);
     assert.equal((await reopened.audio(id,'vocals')).toString(),'unchanged-vocals');
     await assert.rejects(reopened.setMasks(id,[{start:2,end:20}]));
@@ -134,9 +134,32 @@ test('saved masks survive reopen and rebuild, remain version-specific, and never
     assert.deepEqual((await reopened.get(id)).masks,masks);
     await reopened.save(id,{...ref,duration:5,frames:Array(50).fill(440)},source,true,{replace:true});
     assert.deepEqual((await reopened.get(id)).masks,[{start:1,end:2},{start:4,end:5}]);
-    await reopened.setMasks(id,[]);assert.deepEqual((await reopened.get(id)).masks,[]);
+    await reopened.setMasks(id,[]);assert.deepEqual((await reopened.get(id)).masks,[]);assert.deepEqual((await reopened.get(bs)).masks,[]);
     assert.deepEqual((await readdir(reopened.directory(id))).sort(),['accompaniment.mp3','reference.json','vocals.mp3']);
   } finally {
     if(path.dirname(path.resolve(dir))===path.resolve(tmpdir())&&path.basename(dir).startsWith('karaoke-library-'))await rm(dir,{recursive:true,force:true});
   }
+});
+
+
+test('YIN and RMVPE caches are separate but share masks only for the same video/range', async()=>{
+  const dir=await mkdtemp(path.join(tmpdir(),'karaoke-library-'));
+  try {
+    const library=new LocalLibrary(dir);
+    const ref={version:1,videoId:'M7lc1UVf-VE',title:'Pitch variants',step:.1,frames:Array(100).fill(440),duration:10,rangeSeconds:30};
+    const yin=cacheKey(ref.videoId,30),rmvpe=cacheKey(ref.videoId,30,'all','demucs','rmvpe'),short=cacheKey(ref.videoId,15);
+    assert.equal(yin,'M7lc1UVf-VE_30_v1');assert.equal(rmvpe,'M7lc1UVf-VE_30_rmvpe_v1');
+    await library.save(yin,ref,dir,false);await library.save(rmvpe,{...ref,pitchMethod:'rmvpe',frames:Array(100).fill(220)},dir,false);
+    await library.save(short,{...ref,rangeSeconds:15},dir,false);
+    assert.equal((await library.get(yin)).pitchMethod,'yin');assert.equal((await library.get(rmvpe)).pitchMethod,'rmvpe');
+    await library.setMasks(yin,[{start:2,end:4}]);
+    assert.deepEqual((await library.get(rmvpe)).masks,[{start:2,end:4}]);assert.deepEqual((await library.get(short)).masks,[]);
+    await library.setMasks(rmvpe,[{start:5,end:6}]);assert.deepEqual((await library.get(yin)).masks,[{start:5,end:6}]);
+    await library.save(rmvpe,{...ref,pitchMethod:'rmvpe'},dir,false,{replace:true});
+    assert.deepEqual((await library.get(rmvpe)).masks,[{start:5,end:6}]);
+    await assert.rejects(library.save(yin,{...ref,pitchMethod:'rmvpe'},dir,false));
+    assert.throws(()=>cacheKey(ref.videoId,30,'all','demucs','unknown'));
+    await library.delete(rmvpe);assert.ok(await library.get(yin));
+    await library.save(rmvpe,{...ref,pitchMethod:'rmvpe'},dir,false);assert.deepEqual((await library.get(rmvpe)).masks,[{start:5,end:6}]);
+  } finally {if(path.dirname(path.resolve(dir))===path.resolve(tmpdir())&&path.basename(dir).startsWith('karaoke-library-'))await rm(dir,{recursive:true,force:true});}
 });

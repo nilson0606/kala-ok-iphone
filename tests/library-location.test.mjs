@@ -76,12 +76,22 @@ test('helper enforces setup, auth and idle-only changes; selected library surviv
     assert.ok(await library.get(id));
     const job = await (await request('/jobs', 'POST', { videoId: 'M7lc1UVf-VE', seconds: 30 })).json();
     assert.equal(job.cached, true);
+    assert.equal((await request('/jobs','POST',{videoId:'M7lc1UVf-VE',seconds:30,pitchMethod:'unknown'})).status,400);
+    const rmId=cacheKey('M7lc1UVf-VE',30,'all','demucs','rmvpe');
+    await library.save(rmId,{version:1,videoId:'M7lc1UVf-VE',title:'RM fixture',step:.1,frames:Array(40).fill(220),duration:4,rangeSeconds:30,pitchMethod:'rmvpe'},dir,false);
+    const rmJob=await (await request('/jobs','POST',{videoId:'M7lc1UVf-VE',seconds:30,pitchMethod:'rmvpe'})).json();
+    assert.equal(rmJob.cached,true);assert.equal(rmJob.pitchMethod,'rmvpe');
+    assert.equal((await (await request('/jobs/'+rmJob.id+'/reference')).json()).pitchMethod,'rmvpe');
+
     const masks=[{start:1,end:2}];
     assert.equal((await request('/library/'+id+'/masks','POST',{masks},false)).status,403);
     assert.equal((await request('/library/'+id+'/masks','POST',{masks:[{start:0,end:99}]})).status,400);
     assert.equal((await request('/library/'+id+'/masks','POST',{masks})).status,200);
     assert.deepEqual((await (await request('/jobs/'+job.id+'/reference')).json()).masks,masks);
     assert.deepEqual((await library.get(id)).masks,masks);
+    assert.deepEqual((await (await request('/jobs/'+rmJob.id+'/reference')).json()).masks,masks);
+    await request('/library/'+rmId,'DELETE');
+    assert.ok(await library.get(id));
 
     assert.equal((await request('/library/location', 'POST', { path: second })).status, 409);
     await request('/jobs/' + job.id, 'DELETE');

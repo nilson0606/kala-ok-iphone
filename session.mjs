@@ -19,7 +19,7 @@ export async function seekPlayerToStart(player, cancelled = () => false, timeout
 
 export function createKaraokeSession(options) {
   let reference = null, displayReference = null, excluded = [], maskBusy = false, masksSupported = false, take = null, jobId = null, token = null, generation = 0, timer;
-  let requestedVocalMode = 'all', requestedModel = 'demucs';
+  let requestedVocalMode = 'all', requestedModel = 'demucs', requestedPitch = 'yin';
   const modelName = model => model === 'bs-roformer' ? 'BS-RoFormer／Viperx 1297' : 'Demucs／htdemucs';
   let phase = 'idle', loadedVideo = null, lastProgress = 0, rangeComplete = false;
   let libraryLocation = null, locationBusy = false;
@@ -53,6 +53,7 @@ export function createKaraokeSession(options) {
     for (const id of ['library-path','library-choose','library-use-path']) $(id).disabled = locationBusy || !!reference || ['preparing','finishing','restarting'].includes(phase);
     $('rebuild-song').disabled = maskBusy || !reference || !!take || ['preparing','finishing','restarting'].includes(phase);
     $('separation-model').disabled = !!take || ['preparing', 'finishing', 'restarting'].includes(phase);
+    $('pitch-method').disabled = !!take || ['preparing','finishing','restarting'].includes(phase);
     $('vocal-mode').disabled = !!take || ['preparing', 'finishing', 'restarting'].includes(phase);
     $('keep-preview').disabled = ['preparing', 'finishing', 'restarting'].includes(phase);
     for (const stem of ['vocals','accompaniment','lead','backing']) $('preview-' + stem).disabled = !reference?.hasPreview || (['lead','backing'].includes(stem) && reference?.vocalMode !== 'lead') || ['preparing','finishing','restarting'].includes(phase);
@@ -139,6 +140,9 @@ export function createKaraokeSession(options) {
   });
   $('library-choose').addEventListener('click', () => chooseLocation(true));
   $('library-use-path').addEventListener('click', () => chooseLocation(false));
+  $('pitch-method').addEventListener('change', () => {
+    if (reference && $('pitch-method').value !== reference.pitchMethod) $('prepare-status').textContent = '音高擷取方式已變更，尚未套用。請按「準備歌曲基準」。有保存相同分離版本的音軌時會直接重用，不需重新分離。';
+  });
   $('vocal-mode').addEventListener('change', () => {
     previewAvailability();
     if (reference && $('vocal-mode').value !== reference.vocalMode) $('prepare-status').textContent = '分離模式已變更，尚未套用。請按「準備歌曲基準」載入或建立所選模式；目前仍是' + (reference.vocalMode === 'lead' ? '主唱／和音模式。' : '一般人聲模式。');
@@ -168,6 +172,7 @@ export function createKaraokeSession(options) {
     $('clip-seconds').value = String(reference.rangeSeconds);
     $('vocal-mode').value = reference.vocalMode || 'all';
     $('separation-model').value = reference.separationModel || 'demucs';
+    $('pitch-method').value = reference.pitchMethod || 'yin';
     $('keep-preview').checked = true;
     $('prepare-song').click();
   });
@@ -209,7 +214,7 @@ export function createKaraokeSession(options) {
       for (const song of songs) {
         const li = document.createElement('li'), title = document.createElement('strong'), detail = document.createElement('small');
         title.textContent = song.title;
-        detail.textContent = `${modelName(song.separationModel)} · ${song.seconds ? '前 ' + song.seconds + ' 秒' : '完整歌曲'} · ${song.vocalMode === 'lead' ? '主唱模式' : '一般人聲'} · ${(song.bytes / 1024 / 1024).toFixed(2)} MB · ${song.hasPreview ? (song.vocalMode === 'lead' ? '含主唱／和音等 4 軌試聽' : '含人聲／伴奏試聽') : '只有旋律基準'}`;
+        detail.textContent = `${modelName(song.separationModel)} · ${(song.pitchMethod || 'yin').toUpperCase()} 音高 · ${song.seconds ? '前 ' + song.seconds + ' 秒' : '完整歌曲'} · ${song.vocalMode === 'lead' ? '主唱模式' : '一般人聲'} · ${(song.bytes / 1024 / 1024).toFixed(2)} MB · ${song.hasPreview ? (song.vocalMode === 'lead' ? '含主唱／和音等 4 軌試聽' : '含人聲／伴奏試聽') : '只有旋律基準'}`;
         const load = document.createElement('button'), remove = document.createElement('button');
         load.type = remove.type = 'button'; load.className = 'song-choice'; remove.className = 'secondary song-delete'; remove.textContent = '刪除';
         load.dataset.songId = song.id; load.setAttribute('aria-label', '載入 ' + song.title); load.append(title, detail);
@@ -219,6 +224,7 @@ export function createKaraokeSession(options) {
           if (reference?.cacheId === song.id) { message('這首歌已載入，可直接按「從頭開始唱」。'); return; }
           $('url').value = `https://www.youtube.com/watch?v=${song.videoId}`;
           $('separation-model').value = song.separationModel || 'demucs';
+          $('pitch-method').value = song.pitchMethod || 'yin';
           $('clip-seconds').value = String(song.seconds); $('vocal-mode').value = song.vocalMode || 'all';
           $('prepare-song').click();
         });
@@ -287,6 +293,7 @@ export function createKaraokeSession(options) {
       if (state.progress >= 100) { bar.removeAttribute('value'); $('prepare-progress-label').textContent = `${subject}推論 100%；正在完成音軌，尚未就緒。`; }
       else { bar.value = state.progress; $('prepare-progress-label').textContent = `${subject}分離 ${Math.round(state.progress)}%（本階段）`; }
     }
+    else if (stage === 'reference' && Number.isFinite(state.progress)) { bar.value = state.progress; $('prepare-progress-label').textContent = `${state.message} ${Math.round(state.progress)}%（尚需驗證及保存）`; }
     else { bar.removeAttribute('value'); $('prepare-progress-label').textContent = state.message || '正在準備…'; }
   }
   async function poll(id, current) {
@@ -299,12 +306,12 @@ export function createKaraokeSession(options) {
       if (state.ready) {
         const data = await api(`/jobs/${id}/reference`);
         if (current !== generation) return;
-        reference = { ...validateReference(data), duration: data.duration, beats: data.beats || [], bpm: data.bpm, cacheId: data.cacheId, hasPreview: data.hasPreview, separationModel: data.separationModel || 'demucs', vocalMode: data.vocalMode || 'all', rangeSeconds: data.rangeSeconds ?? Number($('clip-seconds').value) };
-        if (reference.separationModel !== requestedModel || reference.vocalMode !== requestedVocalMode) throw new Error('本機回傳的分離模式與所選模式不符，請更新頁面與本機工具後重試。');
+        reference = { ...validateReference(data), duration: data.duration, beats: data.beats || [], bpm: data.bpm, cacheId: data.cacheId, hasPreview: data.hasPreview, separationModel: data.separationModel || 'demucs', pitchMethod: data.pitchMethod || 'yin', vocalMode: data.vocalMode || 'all', rangeSeconds: data.rangeSeconds ?? Number($('clip-seconds').value) };
+        if (reference.pitchMethod !== requestedPitch || reference.separationModel !== requestedModel || reference.vocalMode !== requestedVocalMode) throw new Error('本機回傳的分離模式與所選模式不符，請更新頁面與本機工具後重試。');
         if (reference.videoId !== loadedVideo) throw new Error('影片已切換，請重新準備歌曲。');
         updateMaskView(); maskEditor.render();
         phase = 'ready';
-        $('prepare-status').textContent = `已就緒：${reference.title} · ${modelName(reference.separationModel)} · ${reference.vocalMode === 'lead' ? '主唱／和音模式' : '一般人聲模式'} · ${Math.round(reference.duration)} 秒 · ${state.cached ? '直接載入本機基準' : '已保存到本機'}${reference.hasPreview ? '，可試聽分離結果' : '，音檔已清除'}。`;
+        $('prepare-status').textContent = `已就緒：${reference.title} · ${modelName(reference.separationModel)} · ${reference.pitchMethod.toUpperCase()} 音高 · ${reference.vocalMode === 'lead' ? '主唱／和音模式' : '一般人聲模式'} · ${Math.round(reference.duration)} 秒 · ${state.cached ? '直接載入本機基準' : '已保存到本機'}${reference.hasPreview ? '，可試聽分離結果' : '，音檔已清除'}。`;
         $('result-title').textContent = reference.title + (reference.vocalMode === 'lead' ? ' · 以主唱評分' : '');
         for (const id of ['total-score','pitch-score','rhythm-score','coverage-score']) $(id).textContent = '—';
         if (reference.beats.length && reference.bpm) {
@@ -327,7 +334,7 @@ export function createKaraokeSession(options) {
     const id = youtubeId($('url').value.trim());
     if (maskBusy) return;
     if (!id) { $('prepare-status').textContent = '請先填入有效的 YouTube 影片網址。'; return; }
-    requestedVocalMode = $('vocal-mode').value; requestedModel = $('separation-model').value;
+    requestedVocalMode = $('vocal-mode').value; requestedModel = $('separation-model').value; requestedPitch = $('pitch-method').value;
     const clearing = clear('正在連接本機工具…');
     const current = generation; loadedVideo = id;
     phase = 'preparing'; renderPreparation({ stage: 'starting', message: '正在連接本機工具…' }); controls();
@@ -335,6 +342,7 @@ export function createKaraokeSession(options) {
     if (current !== generation) return;
     try {
       const helper = await ensureSession();
+      if (requestedPitch !== 'yin' && !helper.features?.includes('pitch-methods')) throw new Error('本機工具需要更新才能使用 RMVPE，請更新並重新啟動工具。');
       if (requestedModel !== 'demucs' && !helper.features?.includes('separation-models')) throw new Error('本機工具需要更新才能使用 BS-RoFormer，請更新工具包並重新啟動；缺少套件時再執行 setup-local.ps1。');
       if (requestedVocalMode === 'lead' && !helper.features?.includes('lead-vocals')) throw new Error('本機工具需要更新才能使用主唱／和音分離，請更新工具包並重新執行 setup-local.ps1。');
       if (force && !helper.features?.includes('rebuild-song')) throw new Error('本機工具需要更新才能重新分離，請更新工具包並重新啟動。');
@@ -344,7 +352,7 @@ export function createKaraokeSession(options) {
       options.player()?.pauseVideo?.();
       await ensureSession();
       if (current !== generation) return;
-      const created = await api('/jobs', { method: 'POST', body: JSON.stringify({ videoId: id, seconds: Number($('clip-seconds').value), preview: $('keep-preview').checked, ...(requestedModel !== 'demucs' ? { separationModel: requestedModel } : {}), ...(requestedVocalMode === 'lead' ? {vocalMode:'lead'} : {}), ...(force ? { force: true } : {}) }) });
+      const created = await api('/jobs', { method: 'POST', body: JSON.stringify({ videoId: id, seconds: Number($('clip-seconds').value), preview: $('keep-preview').checked, ...(requestedPitch !== 'yin' ? {pitchMethod:requestedPitch} : {}), ...(requestedModel !== 'demucs' ? { separationModel: requestedModel } : {}), ...(requestedVocalMode === 'lead' ? {vocalMode:'lead'} : {}), ...(force ? { force: true } : {}) }) });
       if (current !== generation) { await removeJob(created.id); return; }
       jobId = created.id; controls(); await poll(jobId, current);
     } catch (error) {

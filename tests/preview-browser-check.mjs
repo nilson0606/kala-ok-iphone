@@ -48,24 +48,24 @@ try {
       } else await route.fallback();
     });
   }
-  let serial = 0, supportModels = true, firstPoll = 0, failMaskSave = false;
-  const library = new Map();
+  let serial = 0, supportModels = true, supportPitch = true, firstPoll = 0, failMaskSave = false;
+  const library = new Map(), sharedMasks = new Map();
   await page.route('http://127.0.0.1:4174/**', async route => {
     const req=route.request(), url=new URL(req.url()); let value={};
-    if(url.pathname==='/session')value={token:'fixture',features:['library','library-location','separation-progress','rebuild-song','lead-vocals','score-masks',...(supportModels?['separation-models']:[])]};
+    if(url.pathname==='/session')value={token:'fixture',features:['library','library-location','separation-progress','rebuild-song','lead-vocals','score-masks',...(supportPitch?['pitch-methods']:[]),...(supportModels?['separation-models']:[])]};
     else if(url.pathname==='/library/location')value={configured:true,path:'C:/fixture-only'};
-    else if(url.pathname==='/library')value={songs:[...library.values()].map(r=>({id:r.cacheId,title:r.title,videoId:r.videoId,seconds:r.rangeSeconds,hasPreview:r.hasPreview,vocalMode:r.vocalMode,separationModel:r.separationModel,bytes:1000}))};
+    else if(url.pathname==='/library')value={songs:[...library.values()].map(r=>({id:r.cacheId,title:r.title,videoId:r.videoId,seconds:r.rangeSeconds,hasPreview:r.hasPreview,vocalMode:r.vocalMode,separationModel:r.separationModel,pitchMethod:r.pitchMethod,bytes:1000}))};
     else if(req.method()==='DELETE') {removed.push(url.pathname);value={cleared:true};}
     else if(url.pathname.endsWith('/masks') && req.method()==='POST') {
       if(failMaskSave){await route.fulfill({status:400,json:{error:'Fixture disk write failure'},headers:{'Access-Control-Allow-Origin':site}});return;}
       const ref=library.get(url.pathname.split('/')[2]);
-      ref.masks=normalizeMasks(req.postDataJSON().masks,ref.duration);value={masks:ref.masks};
+      ref.masks=normalizeMasks(req.postDataJSON().masks,ref.duration);sharedMasks.set(ref.videoId+'_'+ref.rangeSeconds,ref.masks);value={masks:ref.masks};
     }
     else if(req.method()==='POST') {requests.push(req.postDataJSON());value={id:String(++serial).padStart(32,'0')};}
     else if(url.pathname.endsWith('/reference')) {
       const request=requests[Number(url.pathname.split('/')[2])-1];
-      value={version:1,videoId:request.videoId,vocalMode:request.vocalMode||'all',separationModel:request.separationModel||'demucs',cacheId:request.videoId+'_30'+(request.vocalMode==='lead'?'_lead':'')+(request.separationModel==='bs-roformer'?'_bs-roformer':'')+'_v1',title:'Preview fixture',step:.1,duration:30,frames:Array(300).fill(440),rangeSeconds:request.seconds,hasPreview:Number(url.pathname.split('/')[2]) > 1,beats:[],bpm:0};
-      value.masks=library.get(value.cacheId)?.masks || [];
+      value={version:1,videoId:request.videoId,vocalMode:request.vocalMode||'all',separationModel:request.separationModel||'demucs',pitchMethod:request.pitchMethod||'yin',cacheId:request.videoId+'_30'+(request.vocalMode==='lead'?'_lead':'')+(request.separationModel==='bs-roformer'?'_bs-roformer':'')+(request.pitchMethod==='rmvpe'?'_rmvpe':'')+'_v1',title:'Preview fixture',step:.1,duration:30,frames:Array(300).fill(440),rangeSeconds:request.seconds,hasPreview:Number(url.pathname.split('/')[2]) > 1,beats:[],bpm:0};
+      value.masks=sharedMasks.get(value.videoId+'_'+value.rangeSeconds) || [];
       library.set(value.cacheId,value);
     } else if(url.pathname.startsWith('/library/')) {
       await route.fulfill({body:data,contentType:'audio/wav',headers:{'Access-Control-Allow-Origin':site}});return;
@@ -76,6 +76,7 @@ try {
   await page.goto(site+'/');
   assert.equal(await page.locator('#vocal-mode').inputValue(),'all');
   assert.equal(await page.locator('#separation-model').inputValue(),'demucs');
+  assert.equal(await page.locator('#pitch-method').inputValue(),'yin');
   await page.locator('#preview-panel summary').click();
   assert.ok(await page.locator('#lead-preview-buttons').isHidden());
   assert.match(await page.locator('#preview-status').textContent(),/先載入歌曲/);
@@ -141,7 +142,7 @@ try {
   await page.waitForFunction(()=>!document.querySelector('#preview-lead').disabled);
   assert.deepEqual(requests[3],{videoId:'M7lc1UVf-VE',seconds:30,preview:true,vocalMode:'lead',force:true});
   assert.ok(await page.locator('#lead-preview-buttons').isVisible());
-  assert.equal(await page.locator('#mask-list li').count(),0);
+  assert.equal(await page.locator('#mask-list li').count(),2);
   assert.match(await page.locator('#result-title').textContent(),/以主唱評分/);
   assert.match(await page.locator('#prepare-status').textContent(),/主唱／和音模式/);
   for (const stem of ['lead','backing']) {
@@ -160,7 +161,7 @@ try {
   await page.locator('#prepare-song').click();
   await page.waitForFunction(()=>document.querySelector('#prepare-status').textContent.startsWith('已就緒'));
   assert.equal(requests[5].separationModel,'bs-roformer');
-  assert.equal(await page.locator('#mask-list li').count(),0);
+  assert.equal(await page.locator('#mask-list li').count(),2);
   assert.match(await page.locator('#prepare-status').textContent(),/BS-RoFormer/);
   await page.locator('#preview-vocals').click();
   await page.waitForFunction(()=>document.querySelector('#stem-audio').currentTime>.1);
@@ -177,12 +178,14 @@ try {
   await page.locator('[data-song-id="M7lc1UVf-VE_30_v1"]').click();
   await page.waitForFunction(()=>document.querySelector('#prepare-status').textContent.startsWith('已就緒'));
   assert.equal(await page.locator('#separation-model').inputValue(),'demucs');
+  assert.equal(await page.locator('#pitch-method').inputValue(),'yin');
   assert.match(await page.locator('#prepare-status').textContent(),/Demucs/);
   assert.equal(requests[7].separationModel,undefined);
   assert.equal(await page.locator('#mask-list li').count(),2);
   await page.locator('#sing-start').click();
   await page.waitForFunction(()=>!document.querySelector('#finish-song').disabled);
   assert.ok(await page.locator('#mask-add').isDisabled());
+  assert.ok(await page.locator('#pitch-method').isDisabled());
   assert.ok(await page.locator('#mask-clear').isDisabled());
   await page.locator('#finish-song').click();
   await page.waitForFunction(()=>!document.querySelector('#mask-add').disabled);
@@ -201,11 +204,29 @@ try {
   await page.waitForFunction(()=>!document.querySelector('#preview-lead').disabled);
   assert.equal(requests[8].separationModel,'bs-roformer');
   assert.equal(requests[8].vocalMode,'lead');
+  await page.locator('#pitch-method').selectOption('rmvpe');
+  assert.match(await page.locator('#prepare-status').textContent(),/尚未套用/);
+  await page.locator('#prepare-song').click();
+  await page.waitForFunction(()=>document.querySelector('#prepare-status').textContent.startsWith('已就緒'));
+  assert.equal(requests[9].pitchMethod,'rmvpe');
+  assert.match(await page.locator('#prepare-status').textContent(),/RMVPE 音高/);
+  assert.equal(await page.locator('#mask-list li').count(),0);
+  await page.locator('#mask-start').fill('2');await page.locator('#mask-end').fill('4');await page.locator('#mask-add').click();
+  await page.waitForFunction(()=>document.querySelector('#mask-list').children.length===1);
+  await page.locator('[data-song-id="M7lc1UVf-VE_30_v1"]').click();
+  await page.waitForFunction(()=>document.querySelector('#prepare-status').textContent.startsWith('已就緒'));
+  assert.equal(await page.locator('#pitch-method').inputValue(),'yin');
+  assert.equal(await page.locator('#mask-list li').count(),1);
+  supportPitch=false;
+  await page.locator('#pitch-method').selectOption('rmvpe');await page.locator('#prepare-song').click();
+  await page.waitForFunction(()=>document.querySelector('#prepare-status').textContent.includes('本機工具需要更新才能使用 RMVPE'));
+  assert.equal(requests.length,11);
+  await page.locator('#pitch-method').selectOption('yin');await page.locator('#separation-model').selectOption('bs-roformer');
   // An old helper cannot silently create a Demucs reference for a BS-RoFormer request.
   supportModels=false;
   await page.locator('#prepare-song').click();
   await page.waitForFunction(()=>document.querySelector('#prepare-status').textContent.includes('本機工具需要更新才能使用 BS-RoFormer'));
-  assert.equal(requests.length,9);
+  assert.equal(requests.length,11);
   // The manual must open a separate tab and every table-of-contents link must resolve.
   const opened=context.waitForEvent('page');
   await page.locator('a[href="manual.html"]').click();
@@ -225,5 +246,5 @@ try {
   assert.equal(await page.locator('#stem-audio').getAttribute('src'),null);
   assert.deepEqual(errors,[]);
   assert.deepEqual(bareRequests,[], 'production must bypass stale bare module and CSS URLs');
-  console.log('Demucs/BS-RoFormer caches, legacy reload, helper capability, default/lead modes, missing-preview upgrade, four decoded previews, rebuild, unload, manual new tab, multiple saved masks, failed saves, version isolation, rest display, take edit lock and responsive layout passed.');
+  console.log('Demucs/BS-RoFormer caches, legacy reload, helper capability, default/lead modes, missing-preview upgrade, four decoded previews, rebuild, unload, manual new tab, multiple saved masks, failed saves, shared masks across models and pitch methods, RMVPE capability checks, rest display, take edit lock and responsive layout passed.');
 } finally {await browser?.close();server.kill();await rm(fixture,{force:true});}

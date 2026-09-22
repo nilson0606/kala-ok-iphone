@@ -195,6 +195,7 @@ def main():
     parser.add_argument('--reference', action='store_true', help='Build a temporary melody/beat reference')
     parser.add_argument('--preview', action='store_true', help='Keep compressed stems for optional local listening')
     parser.add_argument('--separation-model', choices=['demucs', 'bs-roformer'], default='demucs')
+    parser.add_argument('--pitch-method', choices=['yin', 'rmvpe'], default='yin')
     parser.add_argument('--vocal-mode', choices=['all', 'lead'], default='all')
     parser.add_argument('--device', choices=['auto', 'cpu'], default='auto', help='Prefer CUDA when available, or force CPU')
     parser.add_argument('--job-id', help=argparse.SUPPRESS)
@@ -265,7 +266,7 @@ def main():
         if args.reference:
             emit('reference')
             from reference_audio import build_reference
-            report['reference'] = build_reference(stems['lead'] if args.vocal_mode == 'lead' else stems['vocals'], stems['accompaniment'], video_id, title, job / 'reference.json')
+            report['reference'] = build_reference(stems['lead'] if args.vocal_mode == 'lead' else stems['vocals'], stems['accompaniment'], video_id, title, job / 'reference.json', pitch_method=args.pitch_method, device=args.device, progress=lambda value: emit('reference', progress=value, message='RMVPE 音高擷取'))
             value = json.loads((job / 'reference.json').read_text(encoding='utf-8'))
             value['vocalMode'] = args.vocal_mode
             value['separationModel'] = args.separation_model
