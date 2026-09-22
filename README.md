@@ -19,6 +19,14 @@
 
 重開機不會移除安裝，但需要重新啟動工具。Windows 重設／重灌或搬到新電腦後應重建 Python 虛擬環境，即使原工具資料夾仍在。若沒有 Python Launcher，可用 `setup-local.ps1 -PythonPath 'C:\path\to\python.exe'` 指定 Python 3.12。
 
+## GPU 加速
+
+安裝腳本預設偵測 NVIDIA 顯示卡，安裝配對的 PyTorch／TorchAudio 2.5.1 CUDA 12.4 版（約 2.5 GB）；未偵測到則使用 CPU 版。既有 CPU 安裝可先停止本機工具，重新執行 `setup-local.ps1` 再啟動；模型與歌曲庫不會移除。可用 `setup-local.ps1 -Device cpu` 指定 CPU 套件，或 `-Device cuda` 指定 CUDA 套件。
+
+每次新分離會檢查 CUDA 是否可用；可用時優先使用 GPU。GPU 記憶體不足或 CUDA 執行失敗時，自動以新的 CPU 程序重試一次，進度歸零並顯示原因；一般檔案或下載錯誤不會誤當 GPU 故障。進度區顯示實際 GPU／CPU；已保存歌曲仍直接載入快取，不重新分析。需要強制 CPU 診斷時可執行 `audio_pipeline.py --input <檔案> --separate --device cpu`。加速幅度取決於硬體與歌曲長度，不影響評分權重。
+
+在 RTX 4060 Laptop GPU（8 GB）上，以相同 30 秒合成音訊驗證：GPU 約 6.2 秒、CPU 約 17.7 秒，包含本機檔案驗證、分離及兩軌完整解碼驗證；不含下載與旋律分析。此短片段測試約快 2.9 倍，不代表每首歌的固定加速比。自動測試另涵蓋無 CUDA、GPU 記憶體不足後 CPU 重試，以及重試進度歸零。
+
 ## 評分與顯示
 
 - 音準 60%、旋律起音的進拍 25%、完整度 15%。前奏／間奏中沒有可辨識旋律的格子不列入音準分母。

@@ -208,6 +208,7 @@ export function createKaraokeSession(options) {
   function renderPreparation(state) {
     const panel = $('prepare-progress-panel'), bar = $('prepare-progress');
     panel.hidden = false;
+    $('prepare-device').textContent = state.cached ? '本機快取' : state.device === 'cuda' ? `GPU · ${state.deviceName || 'NVIDIA CUDA'}` : state.device === 'cpu' ? (state.fallback ? 'CPU · GPU 失敗後重試' : 'CPU · 本機處理') : '本機處理';
     const steps = ['download', 'separating', 'reference', 'ready'];
     const stage = state.ready ? 'ready' : state.stage === 'validated' ? 'download' : state.stage === 'stem_validated' ? 'separating' : state.stage;
     const index = steps.indexOf(stage);

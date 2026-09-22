@@ -1,4 +1,4 @@
-# Python 3.12. Install CPU torch and torchaudio first using the command in README.
+# Python 3.12. Install matching torch and torchaudio first using setup-local.ps1 (CUDA or CPU).
 yt-dlp[default]==2026.8.19
 demucs==4.0.1
 soundfile==0.13.1

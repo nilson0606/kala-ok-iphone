@@ -34,7 +34,7 @@ try {
     }};
   });
   const page = await context.newPage(), errors = [], deleted = [], createdVideos = [];
-  const fixtureJobs = new Map(); let firstProgress = true;
+  const fixtureJobs = new Map(); let firstProgress = true, fallbackProgress = true;
   page.on('pageerror', error => errors.push(error.message));
   let serial = 0, createDelay = 0, libraryConfigured = false, releasePicker, pickerPending = false;
   await page.route('http://127.0.0.1:4174/**', async route => {
@@ -48,7 +48,8 @@ try {
     else if (request.method() === 'DELETE') { deleted.push(url.pathname); value = { cleared: true }; }
     else if (request.method() === 'POST') { await new Promise(r => setTimeout(r, createDelay)); value = { id: String(++serial).padStart(32, '0') }; fixtureJobs.set(value.id, request.postDataJSON().videoId); createdVideos.push(request.postDataJSON().videoId); }
     else if (url.pathname.endsWith('/reference')) value = { version: 1, videoId: fixtureJobs.get(url.pathname.split('/')[2]), cacheId: fixtureJobs.get(url.pathname.split('/')[2]) + '_0_v1', title: 'Synthetic octave fixture', step: .1, duration: 4, frames: Array(40).fill(880), beats: [0, .5, 1, 1.5, 2, 2.5, 3, 3.5], bpm: 120 };
-    else if (firstProgress) { firstProgress = false; value = { stage: 'separating', ready: false, progress: 42, message: '分離中' }; }
+    else if (firstProgress) { firstProgress = false; value = { stage: 'separating', ready: false, progress: 42, device: 'cuda', deviceName: 'Test GPU', message: '分離中' }; }
+    else if (fallbackProgress) { fallbackProgress = false; value = { stage: 'separating', progress: 0, device: 'cpu', fallback: true, message: 'GPU 失敗，CPU 重試' }; }
     else value = { stage: 'ready', ready: true, message: 'fixture ready' };
     await route.fulfill({ json: value, headers: { 'Access-Control-Allow-Origin': 'http://localhost:4173' } });
   });
@@ -72,6 +73,9 @@ try {
   await page.locator('#prepare-song').click();
   await page.waitForFunction(() => document.querySelector('#prepare-progress').value === 42);
   assert.match(await page.locator('#prepare-progress-label').innerText(), /42%/);
+  assert.match(await page.locator('#prepare-device').textContent(), /GPU.*Test GPU/);
+  await page.waitForFunction(() => document.querySelector('#prepare-device').textContent.includes('重試'));
+  assert.equal(await page.locator('#prepare-progress').evaluate(e => e.value), 0);
   await page.waitForFunction(() => document.querySelector('#prepare-status').textContent.startsWith('已就緒'));
   assert.ok(await page.locator('#library-choose').isDisabled(), 'active song locks library location');
   assert.ok(await page.locator('#sing-start').isEnabled(), 'start can request microphone permission when reference is ready');

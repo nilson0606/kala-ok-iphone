@@ -36,3 +36,5 @@ main{max-width:1360px}
 @media(max-width:760px){html{scroll-padding-top:80px}.section-nav{gap:2px;margin-inline:-16px;padding:10px 16px}.section-nav a{font-size:12px;padding:12px}.source-card{grid-column:auto}}
 
 @media(max-width:999px){.layout{grid-template-columns:minmax(0,1fr)}}
+
+.progress-heading{flex-wrap:wrap}.progress-heading #prepare-device{overflow-wrap:anywhere}

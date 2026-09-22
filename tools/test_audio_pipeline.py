@@ -1,7 +1,8 @@
 import unittest
-from audio_pipeline import normalize_url, separation_progress, run_separation
-from unittest.mock import patch
+from audio_pipeline import normalize_url, separation_progress, run_separation, choose_device, separate_audio
+from unittest.mock import patch, MagicMock
 import sys
+from pathlib import Path
 
 
 class URLTests(unittest.TestCase):
@@ -28,6 +29,46 @@ class ProgressTests(unittest.TestCase):
         with patch('audio_pipeline.emit') as callback:
             run_separation([sys.executable, '-c', script], timeout=10)
             self.assertEqual([call.kwargs['progress'] for call in callback.call_args_list], [0, 50, 100])
+
+
+class DeviceTests(unittest.TestCase):
+    def test_auto_device_selection_and_unavailable_driver(self):
+        torch = MagicMock()
+        with patch.dict(sys.modules, {'torch': torch}):
+            torch.cuda.is_available.return_value = False
+            self.assertEqual(choose_device()['device'], 'cpu')
+            torch.cuda.is_available.return_value = True
+            torch.cuda.get_device_name.return_value = 'Test GPU'
+            self.assertEqual(choose_device(), {'device': 'cuda', 'deviceName': 'Test GPU'})
+            self.assertEqual(choose_device('cpu')['device'], 'cpu')
+            torch.cuda.get_device_name.side_effect = RuntimeError('driver unavailable')
+            self.assertEqual(choose_device()['device'], 'cpu')
+
+    def test_gpu_oom_retries_once_on_cpu_with_reset_progress(self):
+        with patch('audio_pipeline.choose_device', return_value={'device': 'cuda', 'deviceName': 'Test GPU'}), patch('audio_pipeline.run_separation', side_effect=[RuntimeError('CUDA out of memory'), None]) as run, patch('audio_pipeline.emit') as emit:
+            result = separate_audio(Path('input.wav'), Path('test-job'))
+            self.assertEqual(result['device'], 'cpu')
+            self.assertTrue(result['fallback'])
+            self.assertEqual([c.args[0][c.args[0].index('-d')+1] for c in run.call_args_list], ['cuda', 'cpu'])
+            self.assertEqual([c.kwargs['progress'] for c in emit.call_args_list], [0, 0])
+            self.assertTrue(emit.call_args_list[-1].kwargs['fallback'])
+
+    def test_gpu_success_does_not_retry(self):
+        with patch('audio_pipeline.choose_device', return_value={'device': 'cuda', 'deviceName': 'Test GPU'}), patch('audio_pipeline.run_separation') as run, patch('audio_pipeline.emit'):
+            self.assertEqual(separate_audio(Path('input.wav'), Path('test-job'))['device'], 'cuda')
+            run.assert_called_once()
+
+    def test_non_gpu_errors_are_not_retried(self):
+        with patch('audio_pipeline.choose_device', return_value={'device': 'cuda', 'deviceName': 'Test GPU'}), patch('audio_pipeline.run_separation', side_effect=RuntimeError('invalid audio file')) as run, patch('audio_pipeline.emit'):
+            with self.assertRaisesRegex(RuntimeError, 'invalid audio'):
+                separate_audio(Path('input.wav'), Path('test-job'))
+            run.assert_called_once()
+
+    def test_cpu_failure_after_fallback_is_propagated(self):
+        with patch('audio_pipeline.choose_device', return_value={'device': 'cuda', 'deviceName': 'Test GPU'}), patch('audio_pipeline.run_separation', side_effect=[RuntimeError('CUDA error'), RuntimeError('CPU error')]) as run, patch('audio_pipeline.emit'):
+            with self.assertRaisesRegex(RuntimeError, 'CPU error'):
+                separate_audio(Path('input.wav'), Path('test-job'))
+            self.assertEqual(run.call_count, 2)
 
 if __name__ == '__main__':
     unittest.main()

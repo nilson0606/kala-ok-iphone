@@ -33,7 +33,7 @@
       <div class="library-location-feedback"><p id="library-location-status" class="status" role="status">第一次先選擇歌曲庫位置，這台電腦會記住設定。</p><button id="library-cancel-pick" type="button" class="secondary" hidden>取消資料夾選擇</button></div>
       <p class="footnote">換資料夾不會刪除原歌曲。歌曲載入中請先「取消／卸載」，再變更位置。</p>
     </section>
-    <p class="footnote">第一次準備歌曲需要下載模型；之後會重用本機模型。歌曲音訊不會上傳到雲端。</p>
+    <p class="footnote">聲曲分離優先使用 NVIDIA GPU，無法使用時改用 CPU。第一次需下載模型，之後重用；音訊不會上傳到雲端。</p>
   </section>
   <div class="layout">
     <section id="player-section" tabindex="-1" class="card source-card">
@@ -62,7 +62,7 @@
       <div class="button-row prepare-buttons"><button id="prepare-song" type="button">準備歌曲基準</button><button id="cancel-song" class="secondary" type="button" disabled>取消／卸載</button></div>
       <div id="prepare-progress-panel" class="prepare-progress-panel" hidden>
         <ol id="prepare-steps" class="prepare-steps"><li>取得音訊</li><li>聲曲分離</li><li>建立基準</li><li>可開始唱</li></ol>
-        <div class="progress-heading"><span id="prepare-progress-label" role="status">正在準備…</span><span>本機處理</span></div>
+        <div class="progress-heading"><span id="prepare-progress-label" role="status">正在準備…</span><span id="prepare-device">本機處理</span></div>
         <progress id="prepare-progress" max="100" aria-labelledby="prepare-progress-label"></progress>
       </div>
       <p id="prepare-status" class="status" role="status">先啟動本機工具，再準備歌曲。首次分析可能需要幾分鐘。</p>

@@ -96,6 +96,42 @@ def run_separation(args, timeout=1800, env=None):
         raise RuntimeError(error.strip() or f'Demucs exited with {child.returncode}')
 
 
+def choose_device(mode='auto'):
+    if mode == 'cpu':
+        return {'device': 'cpu', 'deviceName': 'CPU'}
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return {'device': 'cuda', 'deviceName': torch.cuda.get_device_name(0)}
+    except Exception:
+        # Driver initialization can fail even when a CUDA-enabled wheel is installed.
+        pass
+    return {'device': 'cpu', 'deviceName': 'CPU'}
+
+
+def separate_audio(audio, job, mode='auto'):
+    selected = choose_device(mode)
+    env = {**os.environ, 'TORCH_HOME': str(ROOT / '.runtime' / 'models'), 'OMP_NUM_THREADS': '4'}
+    def attempt(device):
+        run_separation([sys.executable, '-m', 'demucs.separate', '--two-stems', 'vocals',
+                        '-n', 'htdemucs', '-d', device, '--shifts', '0', '--float32',
+                        '-o', job / 'stems', audio], timeout=1800, env=env)
+    emit('separating', model='htdemucs', progress=0, **selected)
+    try:
+        attempt(selected['device'])
+    except RuntimeError as error:
+        gpu_error = any(term in str(error).lower() for term in (
+            'cuda', 'cudnn', 'cublas', 'out of memory', 'nvidia', 'no kernel image'))
+        if selected['device'] != 'cuda' or not gpu_error:
+            raise
+        # The failed child has exited, releasing its GPU allocations. Retry once in a
+        # new CPU process; successful outputs replace any partially written stems.
+        selected = {'device': 'cpu', 'deviceName': 'CPU', 'fallback': True}
+        emit('separating', model='htdemucs', progress=0, **selected)
+        attempt('cpu')
+    return selected
+
+
 def validate_audio(path: Path):
     if not path.is_file() or path.stat().st_size == 0:
         raise ValueError('Audio file is missing or empty.')
@@ -124,6 +160,7 @@ def main():
     parser.add_argument('--separate', action='store_true', help='Separate vocals and accompaniment locally with Demucs')
     parser.add_argument('--reference', action='store_true', help='Build a temporary melody/beat reference')
     parser.add_argument('--preview', action='store_true', help='Keep compressed stems for optional local listening')
+    parser.add_argument('--device', choices=['auto', 'cpu'], default='auto', help='Prefer CUDA when available, or force CPU')
     parser.add_argument('--job-id', help=argparse.SUPPRESS)
     args = parser.parse_args()
     if not 0 <= args.seconds <= 120:
@@ -166,11 +203,7 @@ def main():
         emit('validated', **original)
         report = {'source': {'path': str(audio), **original}, 'stems': {}, 'temporary': True}
         if args.separate:
-            emit('separating', model='htdemucs', device='cpu')
-            env = {**os.environ, 'TORCH_HOME': str(ROOT / '.runtime' / 'models'), 'OMP_NUM_THREADS': '4'}
-            run_separation([sys.executable, '-m', 'demucs.separate', '--two-stems', 'vocals',
-                 '-n', 'htdemucs', '-d', 'cpu', '--shifts', '0', '--float32',
-                 '-o', job / 'stems', audio], timeout=1800, env=env)
+            report['separation'] = separate_audio(audio, job, args.device)
             stem_dir = job / 'stems' / 'htdemucs' / audio.stem
             for name, filename in [('vocals', 'vocals.wav'), ('accompaniment', 'no_vocals.wav')]:
                 file = stem_dir / filename

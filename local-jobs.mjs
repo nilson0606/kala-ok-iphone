@@ -38,8 +38,17 @@ async function erase(job) {
   if (/^[a-f0-9]{32}$/.test(job.id) && path.dirname(dir) === path.resolve(jobsRoot)) await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   jobs.delete(job.id);
 }
+export function updateSeparation(job, data) {
+  if (['cuda', 'cpu'].includes(data.device)) {
+    if (job.device !== data.device) job.progress = 0;
+    job.device = data.device; job.deviceName = String(data.deviceName || data.device).slice(0, 120);
+    job.fallback = data.fallback === true;
+  }
+  if (Number.isFinite(data.progress)) job.progress = Math.max(job.progress || 0, Math.min(100, Math.max(0, data.progress)));
+  job.message = job.fallback ? 'GPU 無法完成分離，已改用 CPU 重新處理…' : job.device === 'cuda' ? '使用 GPU 在本機分離人聲與伴奏…' : '使用 CPU 在本機分離人聲與伴奏…';
+}
 function summary(job) {
-  return { id: job.id, stage: job.stage, message: job.message, progress: job.progress ?? null, ready: !!job.reference,
+  return { id: job.id, stage: job.stage, message: job.message, progress: job.progress ?? null, device: job.device ?? null, deviceName: job.deviceName ?? null, fallback: !!job.fallback, ready: !!job.reference,
     title: job.reference?.title, duration: job.reference?.duration, bpm: job.reference?.bpm,
     voicedSeconds: job.reference?.voicedSeconds, audioCleared: !!job.reference && !job.reference.hasPreview, cacheId: job.cacheId, cached: !!job.cached, hasPreview: !!job.reference?.hasPreview };
 }
@@ -65,7 +74,7 @@ async function start(videoId, seconds, preview = false) {
     let data; try { data = JSON.parse(line); } catch { return; }
     job.updated = Date.now();
     if (names[data.stage]) { job.stage = data.stage; job.message = names[data.stage]; }
-    if (data.stage === 'separating' && Number.isFinite(data.progress)) job.progress = Math.max(job.progress || 0, Math.min(100, Math.max(0, data.progress)));
+    if (data.stage === 'separating') updateSeparation(job, data);
     if (data.stage === 'failed') { job.stage = 'failed'; job.message = String(data.message || '處理失敗').slice(-1000); }
     if (data.stage === 'complete') {
       try {
