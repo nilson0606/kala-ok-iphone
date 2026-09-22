@@ -110,3 +110,33 @@ test('model versions preserve legacy IDs and isolate replacement, preview access
     if(path.dirname(path.resolve(dir))===path.resolve(tmpdir()) && path.basename(dir).startsWith('karaoke-library-'))await rm(dir,{recursive:true,force:true});
   }
 });
+
+
+test('saved masks survive reopen and rebuild, remain version-specific, and never alter audio or raw melody', async () => {
+  const dir=await mkdtemp(path.join(tmpdir(),'karaoke-library-'));
+  try {
+    const source=path.join(dir,'source');await mkdir(source);
+    for(const stem of ['vocals','accompaniment'])await writeFile(path.join(source,stem+'.mp3'),'unchanged-'+stem);
+    const library=new LocalLibrary(path.join(dir,'library'));
+    const ref={version:1,videoId:'M7lc1UVf-VE',title:'Saved masks',step:.1,frames:Array(100).fill(440),duration:10,rangeSeconds:30};
+    const id=cacheKey(ref.videoId,30),bs=cacheKey(ref.videoId,30,'all','bs-roformer');
+    await library.save(id,ref,source,true);await library.save(bs,{...ref,separationModel:'bs-roformer'},source,true);
+    const masks=[{start:1,end:2},{start:4,end:6}];
+    await library.setMasks(id,masks);
+    const reopened=new LocalLibrary(library.root);
+    assert.deepEqual((await reopened.get(id)).masks,masks);
+    assert.deepEqual((await reopened.get(bs)).masks,[]);
+    assert.deepEqual((await reopened.get(id)).frames,ref.frames);
+    assert.equal((await reopened.audio(id,'vocals')).toString(),'unchanged-vocals');
+    await assert.rejects(reopened.setMasks(id,[{start:2,end:20}]));
+    assert.deepEqual((await reopened.get(id)).masks,masks);
+    await reopened.save(id,ref,source,true,{replace:true});
+    assert.deepEqual((await reopened.get(id)).masks,masks);
+    await reopened.save(id,{...ref,duration:5,frames:Array(50).fill(440)},source,true,{replace:true});
+    assert.deepEqual((await reopened.get(id)).masks,[{start:1,end:2},{start:4,end:5}]);
+    await reopened.setMasks(id,[]);assert.deepEqual((await reopened.get(id)).masks,[]);
+    assert.deepEqual((await readdir(reopened.directory(id))).sort(),['accompaniment.mp3','reference.json','vocals.mp3']);
+  } finally {
+    if(path.dirname(path.resolve(dir))===path.resolve(tmpdir())&&path.basename(dir).startsWith('karaoke-library-'))await rm(dir,{recursive:true,force:true});
+  }
+});

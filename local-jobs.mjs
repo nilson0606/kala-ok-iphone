@@ -11,6 +11,7 @@ const jobsRoot = path.join(root, '.runtime', 'jobs');
 const python = path.join(root, '.runtime', 'venv', 'Scripts', 'python.exe');
 const token = randomBytes(32).toString('hex');
 const jobs = new Map();
+const editingMasks = new Set();
 function logJob(job, event, detail = '') {
   console.log(JSON.stringify({ time: new Date().toISOString(), event, id: job.id, cacheId: job.cacheId, stage: job.stage, failedStage: job.failedStage, detail: String(detail).replace(/https?:\/\/\S+/g, '[URL]').slice(-1500) }));
 }
@@ -23,7 +24,7 @@ async function currentLibrary() {
 const json = (res, code, value) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
 async function body(req) {
   let text = '';
-  for await (const chunk of req) { text += chunk; if (text.length > 4096) throw new Error('Request too large'); }
+  for await (const chunk of req) { text += chunk; if (text.length > 16384) throw new Error('Request too large'); }
   return JSON.parse(text);
 }
 async function stopChild(child) {
@@ -90,7 +91,8 @@ async function start(videoId, seconds, preview = false, force = false, vocalMode
         if ((value.separationModel || 'demucs') !== separationModel || (value.vocalMode || 'all') !== vocalMode || validated.videoId !== videoId || !Number.isFinite(value.duration) || value.duration <= 0 || value.duration > 905) throw new Error('Invalid reference');
         const beats = Array.isArray(value.beats) ? value.beats.filter(t => Number.isFinite(t) && t >= 0 && t <= value.duration).sort((a,b)=>a-b) : [];
         if (job.deleted) return;
-        const reference = { ...validated, duration: value.duration, bpm: Number.isFinite(value.bpm) ? value.bpm : null, beats, voicedSeconds: value.voicedSeconds, vocalMode, separationModel, quality: vocalMode === 'lead' ? 'experimental-lead-vocals' : 'experimental-separated-vocals', rangeSeconds: seconds };
+        const { masks: _unusedMasks, ...validatedMelody } = validated;
+        const reference = { ...validatedMelody, duration: value.duration, bpm: Number.isFinite(value.bpm) ? value.bpm : null, beats, voicedSeconds: value.voicedSeconds, vocalMode, separationModel, quality: vocalMode === 'lead' ? 'experimental-lead-vocals' : 'experimental-separated-vocals', rangeSeconds: seconds };
         job.persisting = library.save(key, reference, path.join(jobsRoot, id), preview, { cancelled: () => job.deleted, replace: force });
         job.reference = await job.persisting;
         if (job.deleted) return;
@@ -126,7 +128,7 @@ async function start(videoId, seconds, preview = false, force = false, vocalMode
   return job;
 }
 export async function handleLocalJobs(req, res) {
-  if (req.url === '/session' && req.method === 'GET') { json(res, 200, { token, features: ['library', 'stem-preview', 'library-location', 'separation-progress', 'rebuild-song', 'lead-vocals', 'separation-models'] }); return true; }
+  if (req.url === '/session' && req.method === 'GET') { json(res, 200, { token, features: ['library', 'stem-preview', 'library-location', 'separation-progress', 'rebuild-song', 'lead-vocals', 'separation-models', 'score-masks'] }); return true; }
   if (!req.url.startsWith('/jobs') && !req.url.startsWith('/library') && req.url !== '/shutdown') return false;
   if (req.headers['x-karaoke-token'] !== token) { json(res, 403, { error: 'Session token required' }); return true; }
   if (req.url === '/library/location' && req.method === 'GET') { json(res, 200, { ...await location.get(), selectionPending: !!folderPicker }); return true; }
@@ -136,7 +138,7 @@ export async function handleLocalJobs(req, res) {
   }
   if (['/library/location', '/library/location/pick'].includes(req.url) && req.method === 'POST') {
     if (changingLocation) { json(res, 409, { error: '資料夾選擇仍在等待。請完成選擇，或按「取消資料夾選擇」後重試。' }); return true; }
-    if (jobs.size) { json(res, 409, { error: '目前有歌曲載入中，請先按歌曲區的「取消／卸載」；不會刪除已保存的歌曲。' }); return true; }
+    if (jobs.size || editingMasks.size) { json(res, 409, { error: '目前有歌曲載入中，請先按歌曲區的「取消／卸載」；不會刪除已保存的歌曲。' }); return true; }
     changingLocation = true;
     try {
       let selected;
@@ -164,9 +166,23 @@ export async function handleLocalJobs(req, res) {
   }
   if (req.url === '/library' && req.method === 'GET') { json(res, 200, { songs: await library.list() }); return true; }
   if (req.url.startsWith('/library/')) {
-    const match = /^\/library\/([\w-]{11}_(?:0|15|30|60)(?:_lead)?(?:_bs-roformer)?_v1)(?:\/(reference|vocals|accompaniment|lead|backing))?$/.exec(req.url);
+    const match = /^\/library\/([\w-]{11}_(?:0|15|30|60)(?:_lead)?(?:_bs-roformer)?_v1)(?:\/(reference|vocals|accompaniment|lead|backing|masks))?$/.exec(req.url);
     if (!match) { json(res, 400, { error: '無效的本機歌曲。' }); return true; }
     const [, id, asset] = match;
+    if (asset === 'masks' && req.method === 'POST') {
+      if (editingMasks.has(id) || [...jobs.values()].some(j => j.cacheId === id && !['ready','failed'].includes(j.stage))) { json(res,409,{error:'這筆歌曲正在處理或保存，請稍後再修改遮罩。'}); return true; }
+      editingMasks.add(id);
+      try {
+        const data = await body(req);
+        if (!Array.isArray(data.masks)) throw new Error('遮罩需為區間清單。');
+        const reference = await library.setMasks(id, data.masks);
+        for (const job of jobs.values()) if (job.cacheId === id && job.reference) job.reference = reference;
+        json(res,200,{masks:reference.masks});
+      } catch (error) { json(res,400,{error:error.message}); }
+      finally { editingMasks.delete(id); }
+      return true;
+    }
+    if (req.method === 'DELETE' && editingMasks.has(id)) { json(res,409,{error:'遮罩保存中，請稍後刪除。'}); return true; }
     if (req.method === 'DELETE' && !asset) {
       for (const job of [...jobs.values()]) if (job.cacheId === id) await erase(job);
       await library.delete(id); json(res, 200, { deleted: true }); return true;
@@ -193,6 +209,7 @@ export async function handleLocalJobs(req, res) {
       if ([...jobs.values()].some(j => !['ready','failed'].includes(j.stage))) { json(res, 409, { error: '已有歌曲正在處理，請先取消或等待完成。' }); return true; }
       if (data.vocalMode !== undefined && !['all','lead'].includes(data.vocalMode)) { json(res, 400, { error: '無效的分離模式。' }); return true; }
       if (data.separationModel !== undefined && !['demucs','bs-roformer'].includes(data.separationModel)) { json(res, 400, { error: '無效的分離模型。' }); return true; }
+      if (editingMasks.has(cacheKey(data.videoId,data.seconds,data.vocalMode || 'all',data.separationModel || 'demucs'))) { json(res,409,{error:'遮罩保存中，請稍後準備歌曲。'}); return true; }
       const job = await start(data.videoId, data.seconds, data.preview === true, data.force === true, data.vocalMode || 'all', data.separationModel || 'demucs'); json(res, 202, summary(job));
     } catch { json(res, 400, { error: '本機工作請求無效。' }); }
     return true;

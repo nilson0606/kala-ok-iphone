@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile, rename, copyFile, readdir, stat, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { validateReference } from './scoring.mjs';
+import { validateReference, normalizeMasks } from './scoring.mjs';
 
 export function cacheKey(videoId, seconds, vocalMode = 'all', separationModel = 'demucs') {
   if (!/^[\w-]{11}$/.test(videoId) || ![0, 15, 30, 60].includes(seconds) || !['all','lead'].includes(vocalMode) || !['demucs','bs-roformer'].includes(separationModel)) throw new Error('Invalid cache key');
@@ -51,7 +51,10 @@ export class LocalLibrary {
           await copyFile(input, path.join(staging, name + '.mp3'));
         }
       }
-      const value = { ...reference, cacheVersion: 1, hasPreview: preview || keepExistingAudio, savedAt: new Date().toISOString(), cacheId: id };
+      const duration = reference.duration;
+      const previousMasks = existing?.masks?.map(({start,end}) => ({start, end:Math.min(end,duration)})).filter(r=>r.start<r.end) || [];
+      const masks = normalizeMasks(reference.masks ?? previousMasks, duration);
+      const value = { ...reference, masks, cacheVersion: 1, hasPreview: preview || keepExistingAudio, savedAt: new Date().toISOString(), cacheId: id };
       await writeFile(path.join(staging, 'reference.json'), JSON.stringify(value), 'utf8');
       if (cancelled()) throw new Error('Save cancelled');
       // Publish only a complete result. Keep the old directory until replacement succeeds.
@@ -63,6 +66,17 @@ export class LocalLibrary {
       await rm(staging, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => {});
       if (committed && moved) await rm(backup, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => {});
     }
+  }
+  async setMasks(id, masks) {
+    const reference = await this.get(id);
+    if (!reference) throw new Error('歌曲基準不存在，請重新載入歌曲。');
+    const value = { ...reference, masks: normalizeMasks(masks, reference.duration) };
+    const dir = this.directory(id), temporary = path.join(dir, '.masks-' + randomUUID() + '.json');
+    try {
+      await writeFile(temporary, JSON.stringify(value), 'utf8');
+      await rename(temporary, path.join(dir, 'reference.json'));
+    } finally { await rm(temporary, { force: true }).catch(() => {}); }
+    return value;
   }
   async list() {
     await mkdir(this.root, { recursive: true });

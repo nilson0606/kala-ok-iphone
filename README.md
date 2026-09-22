@@ -122,3 +122,14 @@ node tests/library-browser-check.mjs
 audio-separator 0.47 的 soundfile writer 會沿用輸入 subtype，MP3 的 `MPEG_LAYER_III` 在輸出 WAV 時造成 `Supported file format but unsupported encoding`，發生於推論完成之後。`tools/roformer_audio.py` 現在先將壓縮來源解碼為浮點 WAV，合法 PCM／float WAV 則直接使用；暫存解碼檔在成功或失敗後均清理。沒有更換模型或改寫既有歌曲庫。
 
 回歸測試使用真正 MP3、FFmpeg、soundfile 與套件原本的 WAV writer，確認兩條輸出可保存；另以 8 秒 MP3 實際執行 BS-RoFormer，兩條浮點 WAV 及試聽 MP3 完整解碼通過。先前僅用 WAV 的短測無法覆蓋這個錯誤。helper 現在也記錄工作 ID、快取版本、處理階段與失敗摘要到本機 stdout 日誌，避免前端清除工作後失去錯誤線索；不記錄音訊或認證權杖。
+
+
+### 多段不計分遮罩
+
+播放器下方可輸入秒數／分:秒，或以播放器位置標記起訖後新增，多段可刪除／全部清除，預設為空。保存至每筆歌曲庫 `reference.json` 的 `masks: [{start,end}]`；不修改旋律原始 frames 或試聽音檔。不同模型、模式及範圍獨立保存。同版本重做分離保留遮罩，必要時截短至新基準長度。
+
+遮罩以相交時間格排除音準、進拍與完整度，起點包含、終點不包含；不允許跨遮罩配對起音。藍色基準線中斷、右側原唱音符顯示休息；影片不跳過或靜音。每輪建立獨立快照，期間禁止編輯；全遮罩或僅休息的演唱不產生分數。保存成功才在頁面套用。
+
+本機工具增加 `score-masks` capability 與已驗證來源／session token 保護的 `POST /library/:id/masks`。原子替換 JSON，最多 100 段，排序合併重疊或相接區間；同筆分離／保存進行中回覆 409。更新後需重新啟動本機工具，既有庫不需重新分離。操作步驟見 HTML 手冊「選用：不計分遮罩」。
+
+遮罩驗證：32 項 JavaScript 測試通過，涵蓋全遮罩不產生分數、區間端點、三種難度／兩種範圍、起音不能跨遮罩匹配、原子保存及工具重啟後載入。Edge／Chrome 正式版資產通過多段新增、位置標記、保存失敗、載入／模型隔離、休息顯示、演唱中鎖定、刪除／清除及桌機／窄螢幕版面檢查。

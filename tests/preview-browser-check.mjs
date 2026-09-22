@@ -5,6 +5,7 @@ import { writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
+import { normalizeMasks } from '../scoring.mjs';
 const require = createRequire(process.env.PLAYWRIGHT_PACKAGE_ROOT || 'C:/Users/User/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/package.json');
 const { chromium } = require('playwright');
 const site = `http://localhost:${process.env.PORT || 4173}`;
@@ -47,18 +48,24 @@ try {
       } else await route.fallback();
     });
   }
-  let serial = 0, supportModels = true, firstPoll = 0;
+  let serial = 0, supportModels = true, firstPoll = 0, failMaskSave = false;
   const library = new Map();
   await page.route('http://127.0.0.1:4174/**', async route => {
     const req=route.request(), url=new URL(req.url()); let value={};
-    if(url.pathname==='/session')value={token:'fixture',features:['library','library-location','separation-progress','rebuild-song','lead-vocals',...(supportModels?['separation-models']:[])]};
+    if(url.pathname==='/session')value={token:'fixture',features:['library','library-location','separation-progress','rebuild-song','lead-vocals','score-masks',...(supportModels?['separation-models']:[])]};
     else if(url.pathname==='/library/location')value={configured:true,path:'C:/fixture-only'};
     else if(url.pathname==='/library')value={songs:[...library.values()].map(r=>({id:r.cacheId,title:r.title,videoId:r.videoId,seconds:r.rangeSeconds,hasPreview:r.hasPreview,vocalMode:r.vocalMode,separationModel:r.separationModel,bytes:1000}))};
     else if(req.method()==='DELETE') {removed.push(url.pathname);value={cleared:true};}
+    else if(url.pathname.endsWith('/masks') && req.method()==='POST') {
+      if(failMaskSave){await route.fulfill({status:400,json:{error:'Fixture disk write failure'},headers:{'Access-Control-Allow-Origin':site}});return;}
+      const ref=library.get(url.pathname.split('/')[2]);
+      ref.masks=normalizeMasks(req.postDataJSON().masks,ref.duration);value={masks:ref.masks};
+    }
     else if(req.method()==='POST') {requests.push(req.postDataJSON());value={id:String(++serial).padStart(32,'0')};}
     else if(url.pathname.endsWith('/reference')) {
       const request=requests[Number(url.pathname.split('/')[2])-1];
       value={version:1,videoId:request.videoId,vocalMode:request.vocalMode||'all',separationModel:request.separationModel||'demucs',cacheId:request.videoId+'_30'+(request.vocalMode==='lead'?'_lead':'')+(request.separationModel==='bs-roformer'?'_bs-roformer':'')+'_v1',title:'Preview fixture',step:.1,duration:30,frames:Array(300).fill(440),rangeSeconds:request.seconds,hasPreview:Number(url.pathname.split('/')[2]) > 1,beats:[],bpm:0};
+      value.masks=library.get(value.cacheId)?.masks || [];
       library.set(value.cacheId,value);
     } else if(url.pathname.startsWith('/library/')) {
       await route.fulfill({body:data,contentType:'audio/wav',headers:{'Access-Control-Allow-Origin':site}});return;
@@ -87,12 +94,36 @@ try {
   assert.match(await page.locator('#preview-status').textContent(),/未保留/);
   assert.ok(await page.locator('#preview-vocals').isDisabled());
   assert.ok(await page.locator('#preview-build').isEnabled());
+  await page.locator('#mask-panel summary').click();
+  assert.match(await page.locator('#mask-status').textContent(),/沒有遮罩/);
+  await page.evaluate(()=>{fixturePlayer.time=2;});
+  await page.locator('#mask-mark-start').click();
+  assert.equal(await page.locator('#mask-start').inputValue(),'2');
+  await page.evaluate(()=>{fixturePlayer.time=4;});
+  await page.locator('#mask-mark-end').click();
+  await page.locator('#mask-add').click();
+  await page.waitForFunction(()=>document.querySelector('#mask-status').textContent.includes('已保存 1 段'));
+  await page.locator('#mask-start').fill('0:06');await page.locator('#mask-end').fill('8');
+  await page.locator('#mask-add').click();
+  await page.waitForFunction(()=>document.querySelector('#mask-list').children.length===2);
+  await page.evaluate(()=>{fixturePlayer.time=3;});
+  await page.waitForFunction(()=>document.querySelector('#target-note').textContent==='休息');
+  assert.match(await page.locator('#live-feedback').textContent(),/遮罩區間，不計分/);
+  failMaskSave=true;
+  await page.locator('#mask-start').fill('10');await page.locator('#mask-end').fill('12');
+  await page.locator('#mask-add').click();
+  await page.waitForFunction(()=>document.querySelector('#mask-status').textContent.includes('未保存'));
+  assert.equal(await page.locator('#mask-list li').count(),2);failMaskSave=false;
+  await page.locator('#mask-start').fill('12');await page.locator('#mask-end').fill('10');await page.locator('#mask-add').click();
+  assert.match(await page.locator('#mask-status').textContent(),/起點/);
+
   // Editing unrelated source controls must not change which cached song is upgraded.
   await page.locator('#url').fill('https://www.youtube.com/watch?v=yCjJyiqpAuU');
   await page.locator('#clip-seconds').selectOption('0');
   await page.locator('#preview-build').click();
   await page.waitForFunction(()=>!document.querySelector('#preview-vocals').disabled);
   assert.deepEqual(requests[1],{videoId:'M7lc1UVf-VE',seconds:30,preview:true});
+  assert.equal(await page.locator('#mask-list li').count(),2);
   assert.ok(removed.every(x=>x.startsWith('/jobs/')));
   assert.ok(await page.locator('#preview-build').isHidden());
   assert.match(await page.locator('#preview-status').textContent(),/音軌已就緒/);
@@ -110,6 +141,7 @@ try {
   await page.waitForFunction(()=>!document.querySelector('#preview-lead').disabled);
   assert.deepEqual(requests[3],{videoId:'M7lc1UVf-VE',seconds:30,preview:true,vocalMode:'lead',force:true});
   assert.ok(await page.locator('#lead-preview-buttons').isVisible());
+  assert.equal(await page.locator('#mask-list li').count(),0);
   assert.match(await page.locator('#result-title').textContent(),/以主唱評分/);
   assert.match(await page.locator('#prepare-status').textContent(),/主唱／和音模式/);
   for (const stem of ['lead','backing']) {
@@ -121,12 +153,14 @@ try {
   await page.waitForFunction(()=>!document.querySelector('#preview-vocals').disabled);
   assert.ok(await page.locator('#lead-preview-buttons').isHidden());
   assert.equal(requests[4].vocalMode,undefined);
+  assert.equal(await page.locator('#mask-list li').count(),2);
   // A new first-stage model must not reuse Demucs results, and both vocal modes work.
   await page.locator('#separation-model').selectOption('bs-roformer');
   assert.match(await page.locator('#prepare-status').textContent(),/尚未套用/);
   await page.locator('#prepare-song').click();
   await page.waitForFunction(()=>document.querySelector('#prepare-status').textContent.startsWith('已就緒'));
   assert.equal(requests[5].separationModel,'bs-roformer');
+  assert.equal(await page.locator('#mask-list li').count(),0);
   assert.match(await page.locator('#prepare-status').textContent(),/BS-RoFormer/);
   await page.locator('#preview-vocals').click();
   await page.waitForFunction(()=>document.querySelector('#stem-audio').currentTime>.1);
@@ -145,6 +179,24 @@ try {
   assert.equal(await page.locator('#separation-model').inputValue(),'demucs');
   assert.match(await page.locator('#prepare-status').textContent(),/Demucs/);
   assert.equal(requests[7].separationModel,undefined);
+  assert.equal(await page.locator('#mask-list li').count(),2);
+  await page.locator('#sing-start').click();
+  await page.waitForFunction(()=>!document.querySelector('#finish-song').disabled);
+  assert.ok(await page.locator('#mask-add').isDisabled());
+  assert.ok(await page.locator('#mask-clear').isDisabled());
+  await page.locator('#finish-song').click();
+  await page.waitForFunction(()=>!document.querySelector('#mask-add').disabled);
+  await page.locator('#mask-list li').first().getByRole('button',{name:'刪除',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('#mask-list').children.length===1);
+  await page.setViewportSize({width:1440,height:1000});
+  await page.locator('#mask-panel').screenshot({path:'test-results/masks-desktop.png'});
+  await page.setViewportSize({width:390,height:844});
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  await page.locator('#mask-panel').screenshot({path:'test-results/masks-mobile.png'});
+  await page.setViewportSize({width:1440,height:1000});
+  await page.locator('#mask-clear').click();
+  await page.waitForFunction(()=>document.querySelector('#mask-list').children.length===0);
+
   await page.locator('[data-song-id="M7lc1UVf-VE_30_lead_bs-roformer_v1"]').click();
   await page.waitForFunction(()=>!document.querySelector('#preview-lead').disabled);
   assert.equal(requests[8].separationModel,'bs-roformer');
@@ -173,5 +225,5 @@ try {
   assert.equal(await page.locator('#stem-audio').getAttribute('src'),null);
   assert.deepEqual(errors,[]);
   assert.deepEqual(bareRequests,[], 'production must bypass stale bare module and CSS URLs');
-  console.log('Demucs/BS-RoFormer caches, legacy reload, helper capability, default/lead modes, missing-preview upgrade, four decoded previews, rebuild, unload, manual new tab and responsive layout passed.');
+  console.log('Demucs/BS-RoFormer caches, legacy reload, helper capability, default/lead modes, missing-preview upgrade, four decoded previews, rebuild, unload, manual new tab, multiple saved masks, failed saves, version isolation, rest display, take edit lock and responsive layout passed.');
 } finally {await browser?.close();server.kill();await rm(fixture,{force:true});}

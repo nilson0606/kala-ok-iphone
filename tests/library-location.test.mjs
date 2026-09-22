@@ -76,6 +76,13 @@ test('helper enforces setup, auth and idle-only changes; selected library surviv
     assert.ok(await library.get(id));
     const job = await (await request('/jobs', 'POST', { videoId: 'M7lc1UVf-VE', seconds: 30 })).json();
     assert.equal(job.cached, true);
+    const masks=[{start:1,end:2}];
+    assert.equal((await request('/library/'+id+'/masks','POST',{masks},false)).status,403);
+    assert.equal((await request('/library/'+id+'/masks','POST',{masks:[{start:0,end:99}]})).status,400);
+    assert.equal((await request('/library/'+id+'/masks','POST',{masks})).status,200);
+    assert.deepEqual((await (await request('/jobs/'+job.id+'/reference')).json()).masks,masks);
+    assert.deepEqual((await library.get(id)).masks,masks);
+
     assert.equal((await request('/library/location', 'POST', { path: second })).status, 409);
     await request('/jobs/' + job.id, 'DELETE');
     const rebuilt = await (await request('/jobs', 'POST', { videoId:'M7lc1UVf-VE', seconds:30, force:true })).json();
@@ -96,5 +103,6 @@ test('helper enforces setup, auth and idle-only changes; selected library surviv
     await stop(); await start();
     assert.equal((await (await request('/library/location')).json()).path, first);
     assert.equal((await (await request('/library')).json()).songs[0].title, 'Retained');
+    assert.deepEqual((await (await request('/library/'+id+'/reference')).json()).masks,[{start:1,end:2}]);
   } finally { await stop(); await removeFixture(dir); }
 });

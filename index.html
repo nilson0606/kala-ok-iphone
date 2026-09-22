@@ -42,6 +42,14 @@
       <p id="player-status" class="status" role="status">貼上網址後，影片會在這裡播放。</p>
       <div class="video-shell"><div id="video-placeholder"><span>▶</span><p>你的下一首歌</p><small>播放器與麥克風分別啟動</small></div><div id="player"></div></div>
       <div class="clock-row"><span>播放器時間 <b id="player-time">—</b></span><span>補償後位置 <b id="aligned-time">—</b></span></div>
+      <details id="mask-panel"><summary>不計分區間遮罩（選用）</summary>
+        <p class="help">載入歌曲基準後，可用播放器定位樂器或誤判段落。遮罩內顯示「休息」，不計音準、進拍或完整度，也不會跳過或靜音影片。預設沒有遮罩。</p>
+        <p id="mask-song" class="help">尚未載入歌曲基準。</p>
+        <div class="mask-times"><div><label for="mask-start">起點（秒或 分:秒）</label><input id="mask-start" type="text" inputmode="decimal" placeholder="例如 0:32.5"><button id="mask-mark-start" type="button" class="secondary" disabled>目前位置設為起點</button></div><div><label for="mask-end">終點（秒或 分:秒）</label><input id="mask-end" type="text" inputmode="decimal" placeholder="例如 0:48"><button id="mask-mark-end" type="button" class="secondary" disabled>目前位置設為終點</button></div></div>
+        <div class="button-row mask-actions"><button id="mask-add" type="button" disabled>新增並保存遮罩</button><button id="mask-clear" type="button" class="secondary" disabled>清除全部遮罩</button></div>
+        <ul id="mask-list" class="mask-list"></ul><p id="mask-status" class="status" role="status">請先載入歌曲基準。</p>
+        <p class="footnote">遮罩自動保存於這筆歌曲基準，不需重新分離；不同模型／模式／分析範圍各自保存。重疊或相連區間會合併，每輪演唱開始後固定。區間起點包含、終點不包含，以基準音高格判定（通常 0.1 秒）。</p>
+      </details>
     </section>
     <section id="voice-section" tabindex="-1" class="card voice-card">
       <div class="section-top"><h2><span class="step">02</span> 試試你的聲音</h2><span id="mic-badge" class="badge">麥克風未開啟</span></div>

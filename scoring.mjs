@@ -1,4 +1,25 @@
 // Experimental single-melody scoring. Raw audio never enters this module.
+export function normalizeMasks(value = [], duration) {
+  if (!Array.isArray(value) || value.length > 100 || !Number.isFinite(duration) || duration <= 0) throw new Error('遮罩資料無效，最多 100 段。');
+  const sorted = value.map(range => {
+    if (!range || !Number.isFinite(range.start) || !Number.isFinite(range.end) || range.start < 0 || range.end <= range.start || range.end > duration) throw new Error('遮罩需符合 0 ≤ 起點 < 終點 ≤ 歌曲基準長度。');
+    return { start: range.start, end: Math.min(duration, range.end) };
+  }).sort((a,b) => a.start - b.start);
+  const merged = [];
+  for (const range of sorted) {
+    const last = merged.at(-1);
+    if (last && range.start <= last.end) last.end = Math.max(last.end, range.end);
+    else merged.push(range);
+  }
+  return merged;
+}
+export function maskedCells(reference) {
+  return reference.frames.map((_, i) => (reference.masks || []).some(({start,end}) => start < (i + 1) * reference.step - 1e-8 && end > i * reference.step + 1e-8));
+}
+export function applyMasks(reference) {
+  const excluded = maskedCells(reference);
+  return { ...reference, frames: reference.frames.map((hz,i) => excluded[i] ? null : hz) };
+}
 export function validateReference(value) {
   if (!value || value.version !== 1 || typeof value.videoId !== 'string' || !/^[\w-]{11}$/.test(value.videoId)) throw new Error('歌曲基準缺少有效影片 ID。');
   if (typeof value.title !== 'string' || value.title.length > 300) throw new Error('歌曲名稱無效。');
@@ -11,7 +32,7 @@ export function validateReference(value) {
     voiced++;
   }
   if (voiced * value.step < 3) throw new Error('至少需要 3 秒可辨識的參考旋律。');
-  return { version: 1, videoId: value.videoId, title: value.title, step: value.step, frames: [...value.frames] };
+  return { version: 1, videoId: value.videoId, title: value.title, step: value.step, frames: [...value.frames], masks: normalizeMasks(value.masks, value.duration ?? value.frames.length * value.step) };
 }
 
 export function pitchDifference(actual, expected, allowOctave = false) {
@@ -48,7 +69,7 @@ function onsets(frames, step) {
   }
   return notes;
 }
-function rhythmCredit(reference, actual, step, allowOctave, profile) {
+function rhythmCredit(reference, actual, step, allowOctave, profile, excluded = []) {
   const expected = onsets(reference, step), sung = onsets(actual, step), used = new Set();
   if (!expected.length) return 0;
   let total = 0;
@@ -56,7 +77,10 @@ function rhythmCredit(reference, actual, step, allowOctave, profile) {
     let chosen = -1, error = profile.rhythmWindow;
     for (let i = 0; i < sung.length; i++) {
       const delta = Math.abs(note.time - sung[i].time);
-      if (!used.has(i) && delta < error && Math.abs(pitchDifference(note.hz, sung[i].hz, allowOctave)) <= 100) { chosen = i; error = delta; }
+      if (used.has(i) || delta >= error || Math.abs(pitchDifference(note.hz, sung[i].hz, allowOctave)) > 100) continue;
+      const from = Math.round(Math.min(note.time, sung[i].time) / step), to = Math.round(Math.max(note.time, sung[i].time) / step);
+      const crossesMask = excluded.slice(from, to + 1).some(Boolean);
+      if (!crossesMask) { chosen = i; error = delta; }
     }
     if (chosen >= 0) { used.add(chosen); total += Math.max(0, Math.min(1, 1 - (error - profile.rhythmFull) / profile.rhythmFade)); }
   }
@@ -70,7 +94,9 @@ export class ScoringTake {
     this.difficulty = this.profile.id;
     this.rangeMode = rangeMode === 'performed' ? 'performed' : 'full';
     this.startIndex = 0; this.endIndex = 0;
-    this.reference = validateReference(reference);
+    const validated = validateReference(reference);
+    this.excluded = maskedCells(validated);
+    this.reference = applyMasks(validated);
     this.observations = new Map();
   }
   begin(time = 0) {
@@ -88,6 +114,7 @@ export class ScoringTake {
     const index = Math.floor(time / this.reference.step);
     if (index >= this.reference.frames.length || index < this.startIndex) return;
     this.endIndex = Math.max(this.endIndex, index + 1);
+    if (this.excluded[index]) return;
     // One observation per time cell: faster sampling or replaying cannot add points.
     this.observations.set(index, Number.isFinite(hz) && hz >= 65 && hz <= 1000 ? hz : null);
   }
@@ -105,7 +132,7 @@ export class ScoringTake {
     }
     if (!expected) return { score: null, pitch: 0, rhythm: 0, coverage: 0, referenceSeconds: 0, sampledSeconds: 0 };
     const actual = frames.map((_, i) => this.observations.get(i + start) ?? null);
-    const rhythm = includeRhythm ? rhythmCredit(frames, actual, this.reference.step, this.allowOctave, this.profile) : 0;
+    const rhythm = includeRhythm ? rhythmCredit(frames, actual, this.reference.step, this.allowOctave, this.profile, this.excluded.slice(start, end)) : 0;
     // Missing notes inside the selected interval stay in the denominator, including silence and skipped sections.
     return {
       score: Math.round(100 * (.6 * points / expected + .25 * rhythm + .15 * voiced / expected)),
