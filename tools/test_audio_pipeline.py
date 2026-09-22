@@ -65,6 +65,18 @@ class DeviceTests(unittest.TestCase):
             self.assertEqual(run.call_args_list[1].kwargs['stage'],'lead_separating')
             self.assertEqual([c.kwargs['progress'] for c in emit.call_args_list],[0,0])
 
+    def test_bs_roformer_routes_worker_and_retries_cpu(self):
+        with patch('audio_pipeline.choose_device', return_value={'device':'cuda','deviceName':'Test GPU'}), patch('audio_pipeline.run_separation', side_effect=[RuntimeError('CUDA out of memory'),None]) as run, patch('audio_pipeline.emit') as emit:
+            result = separate_audio(Path('input.wav'),Path('test-job'),model='bs-roformer')
+            self.assertEqual(result['device'],'cpu')
+            self.assertEqual(run.call_count,2)
+            self.assertEqual(run.call_args_list[0].args[0][3],'bs-roformer')
+            self.assertIn(Path('test-job/stems/bs-roformer/input'),run.call_args_list[0].args[0])
+            self.assertEqual(run.call_args_list[1].kwargs['env']['CUDA_VISIBLE_DEVICES'],'')
+            self.assertEqual([c.kwargs['model'] for c in emit.call_args_list],['bs-roformer','bs-roformer'])
+        self.assertEqual(separation_progress(' 20%|## | 2/10 [00:01<00:03, 2.02it/s]'),20)
+        self.assertIsNone(separation_progress('20%|## | 182M/913M [00:04<00:17, 40.8MiB/s]'))
+
     def test_gpu_success_does_not_retry(self):
         with patch('audio_pipeline.choose_device', return_value={'device': 'cuda', 'deviceName': 'Test GPU'}), patch('audio_pipeline.run_separation') as run, patch('audio_pipeline.emit'):
             self.assertEqual(separate_audio(Path('input.wav'), Path('test-job'))['device'], 'cuda')

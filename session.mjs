@@ -18,7 +18,8 @@ export async function seekPlayerToStart(player, cancelled = () => false, timeout
 
 export function createKaraokeSession(options) {
   let reference = null, take = null, jobId = null, token = null, generation = 0, timer;
-  let requestedVocalMode = 'all';
+  let requestedVocalMode = 'all', requestedModel = 'demucs';
+  const modelName = model => model === 'bs-roformer' ? 'BS-RoFormer／Viperx 1297' : 'Demucs／htdemucs';
   let phase = 'idle', loadedVideo = null, lastProgress = 0, rangeComplete = false;
   let libraryLocation = null, locationBusy = false;
   let previewUrl = null, previewRequest = null, previewSerial = 0, restartToken = 0;
@@ -35,6 +36,7 @@ export function createKaraokeSession(options) {
     $('prepare-song').disabled = locationBusy || libraryLocation?.configured === false || ['preparing', 'finishing', 'restarting'].includes(phase);
     for (const id of ['library-path','library-choose','library-use-path']) $(id).disabled = locationBusy || !!reference || ['preparing','finishing','restarting'].includes(phase);
     $('rebuild-song').disabled = !reference || !!take || ['preparing','finishing','restarting'].includes(phase);
+    $('separation-model').disabled = !!take || ['preparing', 'finishing', 'restarting'].includes(phase);
     $('vocal-mode').disabled = !!take || ['preparing', 'finishing', 'restarting'].includes(phase);
     $('keep-preview').disabled = ['preparing', 'finishing', 'restarting'].includes(phase);
     for (const stem of ['vocals','accompaniment','lead','backing']) $('preview-' + stem).disabled = !reference?.hasPreview || (['lead','backing'].includes(stem) && reference?.vocalMode !== 'lead') || ['preparing','finishing','restarting'].includes(phase);
@@ -124,6 +126,9 @@ export function createKaraokeSession(options) {
     previewAvailability();
     if (reference && $('vocal-mode').value !== reference.vocalMode) $('prepare-status').textContent = '分離模式已變更，尚未套用。請按「準備歌曲基準」載入或建立所選模式；目前仍是' + (reference.vocalMode === 'lead' ? '主唱／和音模式。' : '一般人聲模式。');
   });
+  $('separation-model').addEventListener('change', () => {
+    if (reference && $('separation-model').value !== reference.separationModel) $('prepare-status').textContent = `分離模型已變更，尚未套用。請按「準備歌曲基準」載入或建立所選模型；目前仍是 ${modelName(reference.separationModel)}。`;
+  });
   function previewAvailability() {
     $('lead-preview-buttons').hidden = reference?.vocalMode !== 'lead';
     const busy = ['preparing','finishing','restarting'].includes(phase);
@@ -145,6 +150,7 @@ export function createKaraokeSession(options) {
     $('url').value = `https://www.youtube.com/watch?v=${reference.videoId}`;
     $('clip-seconds').value = String(reference.rangeSeconds);
     $('vocal-mode').value = reference.vocalMode || 'all';
+    $('separation-model').value = reference.separationModel || 'demucs';
     $('keep-preview').checked = true;
     $('prepare-song').click();
   });
@@ -167,7 +173,7 @@ export function createKaraokeSession(options) {
       if (!response.ok) throw new Error('音軌不存在或已刪除，請勾選保留試聽後重新準備。');
       const blob = await response.blob(); if (serial !== previewSerial) return;
       previewUrl = URL.createObjectURL(blob); $('stem-audio').src = previewUrl; $('stem-audio').hidden = false;
-      $('preview-status').textContent = ({vocals:'全部人聲',accompaniment:'伴奏',lead:'主唱',backing:'和音'}[stem]) + '試聽 · 本機音檔';
+      $('preview-status').textContent = ({vocals:'全部人聲',accompaniment:'伴奏',lead:'主唱',backing:'和音'}[stem]) + '試聽 · ' + modelName(reference.separationModel) + ' · 本機音檔';
       await $('stem-audio').play();
     } catch (error) {
       if (serial === previewSerial) $('preview-status').textContent = error.name === 'NotAllowedError' ? '音軌已載入，請點音訊播放器的播放鍵。' : error.message;
@@ -186,7 +192,7 @@ export function createKaraokeSession(options) {
       for (const song of songs) {
         const li = document.createElement('li'), title = document.createElement('strong'), detail = document.createElement('small');
         title.textContent = song.title;
-        detail.textContent = `${song.seconds ? '前 ' + song.seconds + ' 秒' : '完整歌曲'} · ${song.vocalMode === 'lead' ? '主唱模式' : '一般人聲'} · ${(song.bytes / 1024 / 1024).toFixed(2)} MB · ${song.hasPreview ? (song.vocalMode === 'lead' ? '含主唱／和音等 4 軌試聽' : '含人聲／伴奏試聽') : '只有旋律基準'}`;
+        detail.textContent = `${modelName(song.separationModel)} · ${song.seconds ? '前 ' + song.seconds + ' 秒' : '完整歌曲'} · ${song.vocalMode === 'lead' ? '主唱模式' : '一般人聲'} · ${(song.bytes / 1024 / 1024).toFixed(2)} MB · ${song.hasPreview ? (song.vocalMode === 'lead' ? '含主唱／和音等 4 軌試聽' : '含人聲／伴奏試聽') : '只有旋律基準'}`;
         const load = document.createElement('button'), remove = document.createElement('button');
         load.type = remove.type = 'button'; load.className = 'song-choice'; remove.className = 'secondary song-delete'; remove.textContent = '刪除';
         load.dataset.songId = song.id; load.setAttribute('aria-label', '載入 ' + song.title); load.append(title, detail);
@@ -195,6 +201,7 @@ export function createKaraokeSession(options) {
           if (['preparing','finishing','restarting'].includes(phase)) return;
           if (reference?.cacheId === song.id) { message('這首歌已載入，可直接按「從頭開始唱」。'); return; }
           $('url').value = `https://www.youtube.com/watch?v=${song.videoId}`;
+          $('separation-model').value = song.separationModel || 'demucs';
           $('clip-seconds').value = String(song.seconds); $('vocal-mode').value = song.vocalMode || 'all';
           $('prepare-song').click();
         });
@@ -270,11 +277,11 @@ export function createKaraokeSession(options) {
       if (state.ready) {
         const data = await api(`/jobs/${id}/reference`);
         if (current !== generation) return;
-        reference = { ...validateReference(data), duration: data.duration, beats: data.beats || [], bpm: data.bpm, cacheId: data.cacheId, hasPreview: data.hasPreview, vocalMode: data.vocalMode || 'all', rangeSeconds: data.rangeSeconds ?? Number($('clip-seconds').value) };
-        if (reference.vocalMode !== requestedVocalMode) throw new Error('本機回傳的分離模式與所選模式不符，請更新頁面與本機工具後重試。');
+        reference = { ...validateReference(data), duration: data.duration, beats: data.beats || [], bpm: data.bpm, cacheId: data.cacheId, hasPreview: data.hasPreview, separationModel: data.separationModel || 'demucs', vocalMode: data.vocalMode || 'all', rangeSeconds: data.rangeSeconds ?? Number($('clip-seconds').value) };
+        if (reference.separationModel !== requestedModel || reference.vocalMode !== requestedVocalMode) throw new Error('本機回傳的分離模式與所選模式不符，請更新頁面與本機工具後重試。');
         if (reference.videoId !== loadedVideo) throw new Error('影片已切換，請重新準備歌曲。');
         phase = 'ready';
-        $('prepare-status').textContent = `已就緒：${reference.title} · ${reference.vocalMode === 'lead' ? '主唱／和音模式' : '一般人聲模式'} · ${Math.round(reference.duration)} 秒 · ${state.cached ? '直接載入本機基準' : '已保存到本機'}${reference.hasPreview ? '，可試聽分離結果' : '，音檔已清除'}。`;
+        $('prepare-status').textContent = `已就緒：${reference.title} · ${modelName(reference.separationModel)} · ${reference.vocalMode === 'lead' ? '主唱／和音模式' : '一般人聲模式'} · ${Math.round(reference.duration)} 秒 · ${state.cached ? '直接載入本機基準' : '已保存到本機'}${reference.hasPreview ? '，可試聽分離結果' : '，音檔已清除'}。`;
         $('result-title').textContent = reference.title + (reference.vocalMode === 'lead' ? ' · 以主唱評分' : '');
         for (const id of ['total-score','pitch-score','rhythm-score','coverage-score']) $(id).textContent = '—';
         if (reference.beats.length && reference.bpm) {
@@ -296,7 +303,7 @@ export function createKaraokeSession(options) {
   async function prepareSong(force = false) {
     const id = youtubeId($('url').value.trim());
     if (!id) { $('prepare-status').textContent = '請先填入有效的 YouTube 影片網址。'; return; }
-    requestedVocalMode = $('vocal-mode').value;
+    requestedVocalMode = $('vocal-mode').value; requestedModel = $('separation-model').value;
     const clearing = clear('正在連接本機工具…');
     const current = generation; loadedVideo = id;
     phase = 'preparing'; renderPreparation({ stage: 'starting', message: '正在連接本機工具…' }); controls();
@@ -304,6 +311,7 @@ export function createKaraokeSession(options) {
     if (current !== generation) return;
     try {
       const helper = await ensureSession();
+      if (requestedModel !== 'demucs' && !helper.features?.includes('separation-models')) throw new Error('本機工具需要更新才能使用 BS-RoFormer，請更新工具包並重新啟動；缺少套件時再執行 setup-local.ps1。');
       if (requestedVocalMode === 'lead' && !helper.features?.includes('lead-vocals')) throw new Error('本機工具需要更新才能使用主唱／和音分離，請更新工具包並重新執行 setup-local.ps1。');
       if (force && !helper.features?.includes('rebuild-song')) throw new Error('本機工具需要更新才能重新分離，請更新工具包並重新啟動。');
       if (!libraryLocation.configured) throw new Error('請先指定歌曲庫資料夾，再準備歌曲。');
@@ -312,7 +320,7 @@ export function createKaraokeSession(options) {
       options.player()?.pauseVideo?.();
       await ensureSession();
       if (current !== generation) return;
-      const created = await api('/jobs', { method: 'POST', body: JSON.stringify({ videoId: id, seconds: Number($('clip-seconds').value), preview: $('keep-preview').checked, ...(requestedVocalMode === 'lead' ? {vocalMode:'lead'} : {}), ...(force ? { force: true } : {}) }) });
+      const created = await api('/jobs', { method: 'POST', body: JSON.stringify({ videoId: id, seconds: Number($('clip-seconds').value), preview: $('keep-preview').checked, ...(requestedModel !== 'demucs' ? { separationModel: requestedModel } : {}), ...(requestedVocalMode === 'lead' ? {vocalMode:'lead'} : {}), ...(force ? { force: true } : {}) }) });
       if (current !== generation) { await removeJob(created.id); return; }
       jobId = created.id; controls(); await poll(jobId, current);
     } catch (error) {

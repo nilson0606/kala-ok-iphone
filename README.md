@@ -21,7 +21,7 @@
 
 ## 主唱／和音分離（選用）
 
-「聲曲分離模式」預設仍是人聲／伴奏。選「主唱／和音分離」時，先用 Demucs 取得全部人聲，再用 [audio-separator](https://github.com/nomadkaraoke/python-audio-separator) 的 Mel Band Roformer Karaoke 模型 `mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt` 估計主唱與和音；旋律基準只從主唱擷取。伴奏節拍分析維持原方式。這不是歌手身分辨識，齊唱、二重唱、疊軌仍可能分錯，請用試聽判斷是否適合該歌。
+「聲曲分離模式」預設仍是人聲／伴奏。選「主唱／和音分離」時，先用所選的 Demucs 或 BS-RoFormer 取得全部人聲，再用 [audio-separator](https://github.com/nomadkaraoke/python-audio-separator) 的 Mel Band Roformer Karaoke 模型 `mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt` 估計主唱與和音；旋律基準只從主唱擷取。伴奏節拍分析維持原方式。這不是歌手身分辨識，齊唱、二重唱、疊軌仍可能分錯，請用試聽判斷是否適合該歌。
 
 第一次需額外下載約 913 MB 模型，保存於 `.runtime/models/lead`；之後重用。現有安裝先停止工具、更新程式碼、重跑 `setup-local.ps1` 再啟動，會安裝配對 TorchVision 0.20.1、audio-separator 0.47.0 與相關依賴。此模型的推論使用 PyTorch CUDA（可用時）；CPU ONNX Runtime 是套件匯入所需，不代表 Roformer 只能用 CPU。GPU 錯誤會用獨立 CPU 程序重試。
 
@@ -105,4 +105,13 @@ node tests/library-browser-check.mjs
 
 資料夾選擇會開啟可見的 Windows 選擇視窗；網頁上的「取消資料夾選擇」只取消這個視窗，不需要卸載歌曲，也不刪除已保存的歌曲庫。等待超過一分鐘會自動解除，之後可重試或直接輸入路徑。
 
-歌曲準備顯示取得音訊、聲曲分離、建立基準、完成等階段（主唱模式另含主唱／和音分離）。分離百分比來自 Demucs 實際完成的推論片段；沒有可靠百分比的階段顯示不定進度，並非依時間假造百分比。資料夾選擇使用 Windows 檔案總管式視窗，只將使用者選定的路徑回傳網頁。
+歌曲準備顯示取得音訊、聲曲分離、建立基準、完成等階段（主唱模式另含主唱／和音分離）。分離百分比來自 Demucs 或 RoFormer 實際完成的推論片段；沒有可靠百分比的階段顯示不定進度，並非依時間假造百分比。資料夾選擇使用 Windows 檔案總管式視窗，只將使用者選定的路徑回傳網頁。
+
+
+## 可選 BS-RoFormer 模型
+
+「聲曲分離模型」提供 Demucs／htdemucs（預設）與 BS-RoFormer／Viperx 1297。後者固定使用 `model_bs_roformer_ep_317_sdr_12.9755.ckpt`，約 639 MB，首次自動下載至 `.runtime/models/bs-roformer`。兩者皆可搭配主唱／和音分離；RoFormer 共用既有 audio-separator 依賴，batch 1、segment 256、overlap 4。模型下載先寫暫存檔，完整收到才發布，斷線重試且失敗不留下可被誤認為完整的模型。
+
+既有歌曲沿用原目錄，不做遷移；沒有 `separationModel` 的舊資料視為 `demucs`。BS-RoFormer 的快取 ID 多 `_bs-roformer`，同影片、範圍與人聲模式可並存。覆蓋及刪除只影響對應版本；歌單、就緒及試聽訊息標示模型。補建試聽保持目前載入的模型。新版頁面遇到不支援模型選擇的舊本機工具會明確要求更新，不會默默使用 Demucs。
+
+本次驗證：26 項 JavaScript、18 項 Python 測試；Edge／Chrome 的正式版資產通過模型切換、舊庫載入、試聽、主唱模式、覆蓋、舊工具攔截與手冊檢查。另以 8 秒合成音訊實際執行 BS-RoFormer，兩條 WAV 都輸出 8 秒、44.1 kHz 雙聲道並完整解碼。短測只確認功能，不代表真人歌曲分離品質或長時間負載驗證。

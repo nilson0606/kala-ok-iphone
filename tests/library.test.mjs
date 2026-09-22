@@ -76,3 +76,37 @@ test('lead and default modes have separate caches; incomplete lead previews cann
     if(path.dirname(path.resolve(dir))===path.resolve(tmpdir()) && path.basename(dir).startsWith('karaoke-library-'))await rm(dir,{recursive:true,force:true});
   }
 });
+
+
+test('model versions preserve legacy IDs and isolate replacement, preview access and deletion', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'karaoke-library-'));
+  try {
+    const source = path.join(dir, 'source'); await mkdir(source);
+    for (const stem of ['vocals','accompaniment','lead','backing']) await writeFile(path.join(source, stem+'.mp3'), 'old-'+stem);
+    const library = new LocalLibrary(path.join(dir,'library'));
+    const ref = {version:1,videoId:'M7lc1UVf-VE',title:'Legacy',step:.1,frames:Array(100).fill(440),duration:10,rangeSeconds:30};
+    const ids = [];
+    for (const model of ['demucs','bs-roformer']) for (const mode of ['all','lead']) {
+      const id = cacheKey(ref.videoId,30,mode,model); ids.push(id);
+      await library.save(id,{...ref,vocalMode:mode,...(model==='demucs'?{}:{separationModel:model})},source,true);
+    }
+    assert.equal(new Set(ids).size,4);
+    assert.deepEqual(ids.slice(0,2),['M7lc1UVf-VE_30_v1','M7lc1UVf-VE_30_lead_v1']);
+    const reopened = new LocalLibrary(library.root);
+    assert.equal((await reopened.get(ids[0])).separationModel,'demucs');
+    assert.deepEqual((await reopened.list()).map(s=>s.separationModel).sort(),['bs-roformer','bs-roformer','demucs','demucs']);
+    await assert.rejects(reopened.save(ids[0],{...ref,separationModel:'bs-roformer'},source,true));
+    await writeFile(path.join(source,'vocals.mp3'),'new-vocals');
+    await reopened.save(ids[2],{...ref,separationModel:'bs-roformer'},source,true,{replace:true});
+    assert.equal((await reopened.audio(ids[2],'vocals')).toString(),'new-vocals');
+    for (const id of [ids[0],ids[1],ids[3]]) assert.equal((await reopened.audio(id,'vocals')).toString(),'old-vocals');
+    assert.equal(await reopened.audio(ids[2],'lead'),null);
+    assert.equal((await reopened.audio(ids[3],'lead')).toString(),'old-lead');
+    await reopened.delete(ids[2]);
+    assert.equal(await reopened.get(ids[2]),null);
+    for (const id of [ids[0],ids[1],ids[3]]) assert.ok(await reopened.get(id));
+    assert.throws(()=>cacheKey(ref.videoId,30,'all','unknown'));
+  } finally {
+    if(path.dirname(path.resolve(dir))===path.resolve(tmpdir()) && path.basename(dir).startsWith('karaoke-library-'))await rm(dir,{recursive:true,force:true});
+  }
+});

@@ -63,6 +63,17 @@ test('helper enforces setup, auth and idle-only changes; selected library surviv
     assert.equal((await request('/library/location', 'POST', { path: first })).status, 200);
     const library = new LocalLibrary(first), id = cacheKey('M7lc1UVf-VE', 30);
     await library.save(id, { version: 1, videoId: 'M7lc1UVf-VE', title: 'Retained', step: .1, frames: Array(40).fill(440), duration: 4, rangeSeconds: 30 }, dir, false);
+    assert.equal((await request('/jobs','POST',{videoId:'M7lc1UVf-VE',seconds:30,separationModel:'unknown'})).status,400);
+    const bsId=cacheKey('M7lc1UVf-VE',30,'all','bs-roformer');
+    await writeFile(path.join(dir,'vocals.mp3'),'bs-vocals'); await writeFile(path.join(dir,'accompaniment.mp3'),'bs-accompaniment');
+    await library.save(bsId,{version:1,videoId:'M7lc1UVf-VE',title:'BS fixture',step:.1,frames:Array(40).fill(440),duration:4,rangeSeconds:30,separationModel:'bs-roformer'},dir,true);
+    const bsJob=await (await request('/jobs','POST',{videoId:'M7lc1UVf-VE',seconds:30,separationModel:'bs-roformer',preview:true})).json();
+    assert.equal(bsJob.cached,true); assert.equal(bsJob.separationModel,'bs-roformer'); assert.equal(bsJob.cacheId,bsId);
+    assert.equal((await (await request('/library/'+bsId+'/reference')).json()).separationModel,'bs-roformer');
+    assert.equal(await (await request('/library/'+bsId+'/vocals')).text(),'bs-vocals');
+    await request('/library/'+bsId,'DELETE');
+    assert.equal((await request('/jobs/'+bsJob.id)).status,404);
+    assert.ok(await library.get(id));
     const job = await (await request('/jobs', 'POST', { videoId: 'M7lc1UVf-VE', seconds: 30 })).json();
     assert.equal(job.cached, true);
     assert.equal((await request('/library/location', 'POST', { path: second })).status, 409);

@@ -58,7 +58,7 @@ def run(args, timeout=300, env=None):
 
 def separation_progress(line, stage="separating"):
     # Demucs reports completed inference chunks in seconds. Ignore model-download bars.
-    if 'seconds' not in line and not (stage == 'lead_separating' and ('it/s' in line or 's/it' in line)):
+    if 'seconds' not in line and not ('it/s' in line or 's/it' in line):
         return None
     match = re.search(r'(\d{1,3})%\|', line)
     return min(100, int(match.group(1))) if match else None
@@ -109,14 +109,25 @@ def choose_device(mode='auto'):
     return {'device': 'cpu', 'deviceName': 'CPU'}
 
 
-def separate_audio(audio, job, mode='auto'):
+def separate_audio(audio, job, mode='auto', model='demucs'):
+    if model not in ('demucs', 'bs-roformer'):
+        raise ValueError('Invalid separation model')
     selected = choose_device(mode)
     env = {**os.environ, 'TORCH_HOME': str(ROOT / '.runtime' / 'models'), 'OMP_NUM_THREADS': '4'}
     def attempt(device):
+        if model == 'bs-roformer':
+            worker_env = dict(env)
+            if device == 'cpu':
+                worker_env['CUDA_VISIBLE_DEVICES'] = ''
+            run_separation([sys.executable, ROOT / 'tools' / 'lead_separator.py',
+                            '--model', 'bs-roformer', '--input', audio,
+                            '--output', job / 'stems' / 'bs-roformer' / audio.stem,
+                            '--models', ROOT / '.runtime' / 'models' / 'bs-roformer'], env=worker_env)
+            return
         run_separation([sys.executable, '-m', 'demucs.separate', '--two-stems', 'vocals',
                         '-n', 'htdemucs', '-d', device, '--shifts', '0', '--float32',
                         '-o', job / 'stems', audio], timeout=1800, env=env)
-    emit('separating', model='htdemucs', progress=0, **selected)
+    emit('separating', model=model, progress=0, **selected)
     try:
         attempt(selected['device'])
     except RuntimeError as error:
@@ -127,7 +138,7 @@ def separate_audio(audio, job, mode='auto'):
         # The failed child has exited, releasing its GPU allocations. Retry once in a
         # new CPU process; successful outputs replace any partially written stems.
         selected = {'device': 'cpu', 'deviceName': 'CPU', 'fallback': True}
-        emit('separating', model='htdemucs', progress=0, **selected)
+        emit('separating', model=model, progress=0, **selected)
         attempt('cpu')
     return selected
 
@@ -180,9 +191,10 @@ def main():
     source.add_argument('--url', help='YouTube video URL')
     source.add_argument('--input', type=Path, help='Existing local audio; original is not modified')
     parser.add_argument('--seconds', type=int, default=15, help='YouTube clip length, 1–120 seconds; 0 for full track (max 15 minutes)')
-    parser.add_argument('--separate', action='store_true', help='Separate vocals and accompaniment locally with Demucs')
+    parser.add_argument('--separate', action='store_true', help='Separate vocals and accompaniment locally')
     parser.add_argument('--reference', action='store_true', help='Build a temporary melody/beat reference')
     parser.add_argument('--preview', action='store_true', help='Keep compressed stems for optional local listening')
+    parser.add_argument('--separation-model', choices=['demucs', 'bs-roformer'], default='demucs')
     parser.add_argument('--vocal-mode', choices=['all', 'lead'], default='all')
     parser.add_argument('--device', choices=['auto', 'cpu'], default='auto', help='Prefer CUDA when available, or force CPU')
     parser.add_argument('--job-id', help=argparse.SUPPRESS)
@@ -229,8 +241,8 @@ def main():
         emit('validated', **original)
         report = {'source': {'path': str(audio), **original}, 'stems': {}, 'temporary': True}
         if args.separate:
-            report['separation'] = separate_audio(audio, job, args.device)
-            stem_dir = job / 'stems' / 'htdemucs' / audio.stem
+            report['separation'] = separate_audio(audio, job, args.device, args.separation_model)
+            stem_dir = job / 'stems' / ('htdemucs' if args.separation_model == 'demucs' else 'bs-roformer') / audio.stem
             for name, filename in [('vocals', 'vocals.wav'), ('accompaniment', 'no_vocals.wav')]:
                 file = stem_dir / filename
                 result = validate_audio(file)
@@ -256,6 +268,7 @@ def main():
             report['reference'] = build_reference(stems['lead'] if args.vocal_mode == 'lead' else stems['vocals'], stems['accompaniment'], video_id, title, job / 'reference.json')
             value = json.loads((job / 'reference.json').read_text(encoding='utf-8'))
             value['vocalMode'] = args.vocal_mode
+            value['separationModel'] = args.separation_model
             (job / 'reference.json').write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
             if args.preview:
                 for name, file in stems.items():
