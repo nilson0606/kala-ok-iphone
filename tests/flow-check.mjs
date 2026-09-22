@@ -54,6 +54,10 @@ try {
     await route.fulfill({ json: value, headers: { 'Access-Control-Allow-Origin': 'http://localhost:4173' } });
   });
   await page.goto('http://localhost:4173/');
+  assert.equal(await page.locator('#score-range').inputValue(),'performed');
+  assert.equal(await page.locator('#score-difficulty').inputValue(),'standard');
+  // Existing complete-song coverage scenarios explicitly opt into the full range.
+  await page.locator('#score-range').selectOption('full');
   assert.ok(await page.locator('#sing-start').isDisabled());
   await page.evaluate(() => window.dispatchEvent(new Event('local-tools-ready')));
   await page.waitForFunction(() => document.querySelector('#prepare-song').disabled);

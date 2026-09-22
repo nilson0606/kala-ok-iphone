@@ -19,11 +19,20 @@ export function pitchDifference(actual, expected, allowOctave = false) {
   return allowOctave ? cents - Math.round(cents / 1200) * 1200 : cents;
 }
 
-export function pitchCredit(actual, expected, allowOctave = false) {
+export const SCORING_PROFILES = Object.freeze({
+  standard: Object.freeze({ id: 'standard', label: '標準', pitchFull: 25, pitchZero: 200, rhythmFull: .08, rhythmFade: .27, rhythmWindow: .351 }),
+  strict: Object.freeze({ id: 'strict', label: '嚴格', pitchFull: 15, pitchZero: 100, rhythmFull: .04, rhythmFade: .16, rhythmWindow: .201 }),
+  relaxed: Object.freeze({ id: 'relaxed', label: '寬鬆', pitchFull: 50, pitchZero: 300, rhythmFull: .12, rhythmFade: .38, rhythmWindow: .501 }),
+});
+export function scoringProfile(difficulty = 'standard') {
+  return Object.hasOwn(SCORING_PROFILES, difficulty) ? SCORING_PROFILES[difficulty] : SCORING_PROFILES.standard;
+}
+
+export function pitchCredit(actual, expected, allowOctave = false, difficulty = 'standard') {
   if (!Number.isFinite(actual) || actual < 65 || actual > 1000) return 0;
   const cents = Math.abs(pitchDifference(actual, expected, allowOctave));
-  // Full credit inside 25 cents; linearly falls to zero at 200 cents.
-  return Math.max(0, Math.min(1, 1 - (cents - 25) / 175));
+  const profile = scoringProfile(difficulty);
+  return Math.max(0, Math.min(1, 1 - (cents - profile.pitchFull) / (profile.pitchZero - profile.pitchFull)));
 }
 
 function onsets(frames, step) {
@@ -39,24 +48,26 @@ function onsets(frames, step) {
   }
   return notes;
 }
-function rhythmCredit(reference, actual, step, allowOctave) {
+function rhythmCredit(reference, actual, step, allowOctave, profile) {
   const expected = onsets(reference, step), sung = onsets(actual, step), used = new Set();
   if (!expected.length) return 0;
   let total = 0;
   for (const note of expected) {
-    let chosen = -1, error = .351;
+    let chosen = -1, error = profile.rhythmWindow;
     for (let i = 0; i < sung.length; i++) {
       const delta = Math.abs(note.time - sung[i].time);
       if (!used.has(i) && delta < error && Math.abs(pitchDifference(note.hz, sung[i].hz, allowOctave)) <= 100) { chosen = i; error = delta; }
     }
-    if (chosen >= 0) { used.add(chosen); total += Math.max(0, Math.min(1, 1 - (error - .08) / .27)); }
+    if (chosen >= 0) { used.add(chosen); total += Math.max(0, Math.min(1, 1 - (error - profile.rhythmFull) / profile.rhythmFade)); }
   }
   return total / expected.length;
 }
 
 export class ScoringTake {
-  constructor(reference, { allowOctave = false, rangeMode = 'full' } = {}) {
+  constructor(reference, { allowOctave = false, rangeMode = 'full', difficulty = 'standard' } = {}) {
     this.allowOctave = allowOctave;
+    this.profile = scoringProfile(difficulty);
+    this.difficulty = this.profile.id;
     this.rangeMode = rangeMode === 'performed' ? 'performed' : 'full';
     this.startIndex = 0; this.endIndex = 0;
     this.reference = validateReference(reference);
@@ -90,11 +101,11 @@ export class ScoringTake {
       if (target === null) continue;
       expected++;
       const actual = this.observations.get(i);
-      if (actual !== null && actual !== undefined) { voiced++; points += pitchCredit(actual, target, this.allowOctave); }
+      if (actual !== null && actual !== undefined) { voiced++; points += pitchCredit(actual, target, this.allowOctave, this.difficulty); }
     }
     if (!expected) return { score: null, pitch: 0, rhythm: 0, coverage: 0, referenceSeconds: 0, sampledSeconds: 0 };
     const actual = frames.map((_, i) => this.observations.get(i + start) ?? null);
-    const rhythm = includeRhythm ? rhythmCredit(frames, actual, this.reference.step, this.allowOctave) : 0;
+    const rhythm = includeRhythm ? rhythmCredit(frames, actual, this.reference.step, this.allowOctave, this.profile) : 0;
     // Missing notes inside the selected interval stay in the denominator, including silence and skipped sections.
     return {
       score: Math.round(100 * (.6 * points / expected + .25 * rhythm + .15 * voiced / expected)),

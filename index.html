@@ -105,9 +105,12 @@
   <section id="score-section" tabindex="-1" class="card score-card">
     <div class="section-top"><h2><span class="step">04</span> 開始唱，留下這次成績</h2><span class="subtle">練習評分</span></div>
     <p id="result-title" class="score-title">尚未選定歌曲</p>
+    <label for="score-difficulty">評分難度</label><select id="score-difficulty" aria-describedby="difficulty-help"><option value="standard">標準（目前規則，預設）</option><option value="strict">嚴格（精準練習）</option><option value="relaxed">寬鬆（輕鬆練唱）</option></select>
+    <p id="difficulty-help" class="help"></p>
     <label for="pitch-mode">音域比對</label><select id="pitch-mode"><option value="octave">允許高／低八度（適合不同音域）</option><option value="strict">嚴格原調（與原唱相同音高）</option></select><p class="help">放寬八度差不會改變 YouTube 伴奏。其他音高偏差仍會扣分；演唱開始後固定本次模式。</p>
-    <label for="score-range">評分範圍</label><select id="score-range"><option value="full">整首歌曲（依已載入的分析範圍）</option><option value="performed">只比已演唱範圍（開始到停止）</option></select>
+    <label for="score-range">評分範圍</label><select id="score-range"><option value="performed" selected>只比已演唱範圍（開始到停止，預設）</option><option value="full">整首歌曲（依已載入的分析範圍）</option></select>
     <p class="help">選「已演唱範圍」時，後面尚未唱到的部分不扣分；這段期間的漏唱、跳過仍計入。每輪開始後固定，重唱時可重新選擇。</p>
+    <p id="take-difficulty" class="help" aria-live="polite">尚未開始演唱；每輪開始後固定難度。</p>
     <div class="score-grid"><div class="total"><strong id="total-score">—</strong><span>總分 / 100</span></div><div><strong id="pitch-score">—</strong><span>音準 · 60%</span></div><div><strong id="rhythm-score">—</strong><span>進拍 · 25%</span></div><div><strong id="coverage-score">—</strong><span>完整度 · 15%</span></div></div>
     <div class="button-row"><button id="sing-start" disabled type="button">從頭開始唱</button><button id="finish-song" disabled type="button" class="secondary">結束並結算</button></div>
     <p id="score-status" class="status" role="status">準備歌曲並開啟麥克風後，按播放就開始評分。</p>

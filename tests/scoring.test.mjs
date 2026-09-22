@@ -93,3 +93,39 @@ test('an intro-only take has no score; clearing a take does not erase the reusab
   for (let i = 20; i < 40; i++) next.sample(i * .1 + .01, 440);
   assert.equal(next.result().score, 100);
 });
+
+test('standard difficulty preserves previous pitch rules and remains the default', () => {
+  for (const cents of [0,15,25,50,80,100,150,199,200,300]) {
+    const ref=reference(), implicit=new ScoringTake(ref), standard=new ScoringTake(ref,{difficulty:'standard'});
+    const hz=440*Math.pow(2,cents/1200);
+    for(let i=0;i<100;i++){implicit.sample(i*.1+.01,hz);standard.sample(i*.1+.01,hz);}
+    const legacy=Math.round(100*Math.max(0,Math.min(1,1-(Math.abs(1200*Math.log2(hz/440))-25)/175)));
+    assert.equal(standard.result().pitch,legacy);
+    assert.deepEqual(implicit.result(),standard.result());
+  }
+  assert.equal(new ScoringTake(reference(),{difficulty:'invalid'}).difficulty,'standard');
+});
+
+test('difficulty changes pitch and timing tolerance without rewarding silence or changing octave/range rules', () => {
+  const pitch=[],rhythm=[];
+  for(const difficulty of ['strict','standard','relaxed']){
+    const perfect=new ScoringTake(reference(),{difficulty,allowOctave:true});
+    assert.equal(perfect.result().score,0);
+    for(let i=0;i<100;i++)perfect.sample(i*.1+.01,220);
+    assert.equal(perfect.result().score,100);
+    const off=new ScoringTake(reference(),{difficulty,allowOctave:true});
+    for(let i=0;i<100;i++)off.sample(i*.1+.01,440*Math.pow(2,80/1200));
+    pitch.push(off.result().pitch);
+    assert.equal(off.result().coverage,100);
+    const ref=reference(); ref.frames=Array.from({length:100},(_,i)=>i%20<5?null:[440,523.251,659.255,493.883,587.33][Math.floor(i/20)]);
+    const late=new ScoringTake(ref,{difficulty});
+    for(let i=0;i<100;i++)late.sample(i*.1+.21,ref.frames[i]);
+    rhythm.push(late.result().rhythm);
+    const partial=new ScoringTake(reference(),{difficulty,rangeMode:'performed'});
+    partial.begin(0);for(let i=0;i<50;i++)partial.sample(i*.1+.01,440);
+    assert.equal(partial.result().score,100);
+    partial.advance(10);assert.equal(partial.result().coverage,50);
+  }
+  assert.ok(pitch[0]<pitch[1]&&pitch[1]<pitch[2],JSON.stringify(pitch));
+  assert.ok(rhythm[0]<rhythm[1]&&rhythm[1]<rhythm[2],JSON.stringify(rhythm));
+});
