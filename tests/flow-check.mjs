@@ -54,6 +54,7 @@ try {
     await route.fulfill({ json: value, headers: { 'Access-Control-Allow-Origin': 'http://localhost:4173' } });
   });
   await page.goto('http://localhost:4173/');
+  await page.locator('#pitch-method').selectOption('yin'); // This scenario uses a saved YIN fixture.
   assert.equal(await page.locator('#score-range').inputValue(),'performed');
   assert.equal(await page.locator('#score-difficulty').inputValue(),'standard');
   // Existing complete-song coverage scenarios explicitly opt into the full range.

@@ -86,7 +86,8 @@ try {
   assert.equal(await page.locator('#separation-method').inputValue(),'single');
   assert.equal(await page.locator('#vocal-mode').inputValue(),'all');
   assert.equal(await page.locator('#separation-model').inputValue(),'demucs');
-  assert.equal(await page.locator('#pitch-method').inputValue(),'yin');
+  assert.equal(await page.locator('#pitch-method').inputValue(),'rmvpe');
+  await page.locator('#pitch-method').selectOption('yin'); // Exercise the legacy fixtures explicitly.
   await page.locator('#preview-panel summary').click();
   assert.ok(await page.locator('#lead-preview-buttons').isHidden());
   assert.match(await page.locator('#preview-status').textContent(),/先載入歌曲/);

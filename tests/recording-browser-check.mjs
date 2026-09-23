@@ -61,6 +61,7 @@ try {
     await route.fulfill({json:value,headers:{'Access-Control-Allow-Origin':site}});
   });
   await page.goto(site+'/');
+  await page.locator('#pitch-method').selectOption('yin'); // This scenario uses a saved YIN fixture.
   await page.evaluate(async()=>{
     const script=document.querySelector('script[src*="app."]').src;
     const {RecordingStore}=await import(new URL('recording-store.mjs',script));
