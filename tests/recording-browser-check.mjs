@@ -44,7 +44,8 @@ try {
   const page=await context.newPage(), errors=[];
   page.on('pageerror',error=>errors.push(error.message));
   let serial=0, hasPreview=true, backingRequests=0, harmonyRequests=0, vocalMode='all', missingHarmony=false; const stemRequests=[];
-  const ref=()=>({version:1,videoId:'M7lc1UVf-VE',title:'Recording fixture',cacheId:'M7lc1UVf-VE_30_v1',step:.1,duration:30,rangeSeconds:30,frames:Array(300).fill(440),beats:[],bpm:0,hasPreview,vocalMode});
+  let fixturePitch='yin',fixtureHz=440;
+  const ref=()=>({version:1,videoId:'M7lc1UVf-VE',title:'Recording fixture',cacheId:'M7lc1UVf-VE_30_v1',step:.1,duration:30,rangeSeconds:30,frames:Array(300).fill(fixtureHz),pitchMethod:fixturePitch,beats:[],bpm:0,hasPreview,vocalMode});
   await page.route('http://127.0.0.1:4174/**',async route=>{
     const req=route.request(),url=new URL(req.url());let value={};
     if(url.pathname==='/session')value={token:'fixture',features:['library','library-location','separation-progress','rebuild-song','lead-vocals','score-masks','pitch-methods','separation-models','recording-mp3']};
@@ -137,6 +138,25 @@ try {
   assert.ok(rescored.post.audioAnalysis.samples.some(s=>s.hz>435&&s.hz<445));
   await page.locator('#post-delay').fill('175');await page.locator('#post-rescore').click();await page.waitForFunction(()=>document.querySelector('#post-score').textContent.includes('校正 175 ms'));
   assert.match(await page.locator('#post-score').textContent(),/同音檔 0 ms 進拍/);
+  const original175=(await records()).find(r=>r.id===harmonyRecord.id).postResult;
+  // Selecting another pitch method alone must not change an old recording's reference.
+  await page.locator('#pitch-method').selectOption('rmvpe');
+  await page.locator('#post-reference-source').selectOption('current');
+  assert.match(await page.locator('#post-reference-info').textContent(),/目前已載入：YIN/);
+  fixturePitch='rmvpe';fixtureHz=523.25;
+  await page.locator('#prepare-song').click();
+  await page.waitForFunction(()=>document.querySelector('#prepare-status').textContent.includes('RMVPE 音高'));
+  assert.match(await page.locator('#post-reference-info').textContent(),/目前已載入：RMVPE/);
+  await page.locator('#post-rescore').click();
+  await page.waitForFunction(()=>document.querySelector('#post-score').textContent.includes('改用已載入基準 RMVPE'));
+  const updated=(await records()).find(r=>r.id===harmonyRecord.id);
+  assert.equal(updated.postResult.referenceSource,'current');assert.equal(updated.postResult.reference.pitchMethod,'rmvpe');
+  assert.equal(updated.postResult.pitch,0);assert.equal(updated.postResult.baseline.pitch,0);
+  assert.deepEqual(updated.post.reference,harmonyRecord.post.reference,'old snapshot and remix stem identity must survive');
+  assert.deepEqual(updated.post.audioAnalysis,rescored.post.audioAnalysis,'reuse the same voice analysis');
+  await page.locator('#post-reference-source').selectOption('original');await page.locator('#post-rescore').click();
+  await page.waitForFunction(()=>document.querySelector('#post-score').textContent.includes('錄音當時基準 YIN'));
+  assert.equal((await records()).find(r=>r.id===harmonyRecord.id).postResult.pitch,original175.pitch);
   const diagnosticDownload=page.waitForEvent('download');await page.locator('#post-diagnostic').click();
   const diagnostic=await diagnosticDownload,stream=await diagnostic.createReadStream(),chunks=[];for await(const chunk of stream)chunks.push(chunk);
   const report=JSON.parse(Buffer.concat(chunks).toString());assert.equal(report.format,'karaoke-recording-diagnostic');assert.equal(report.recording.id,harmonyRecord.id);

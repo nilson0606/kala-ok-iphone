@@ -11,7 +11,7 @@ export function createSingerRecorder(options) {
     $('recording-manual').checked = saved.manual; $('recording-voice-level').value = saved.voice; $('recording-backing-level').value = saved.backing;
   } catch {}
   function balanceSettings() { return mixSettings({manual:$('recording-manual').checked,voice:Number($('recording-voice-level').value),backing:Number($('recording-backing-level').value)}); }
-  const post = createRecordingPost({store, stop:()=>stop(), loadStem:options.loadStem, pause:options.pausePlayer});
+  const post = createRecordingPost({store, stop:()=>stop(), reference:options.reference, pause:options.pausePlayer});
   const status = text => { $('recording-status').textContent = text; };
   function controls() {
     const mode=$('recording-mode').value, manual=$('recording-manual').checked;
@@ -195,5 +195,5 @@ export function createSingerRecorder(options) {
   controls();
   window.addEventListener('pagehide',()=>{stop();clearInterval(timer);clearPreview();});
   render().catch(error=>status('瀏覽器錄音儲存不可用：'+error.message));
-  return { prepare, stop, playerState, clearPreview, sample };
+  return { prepare, stop, playerState, clearPreview, sample, referenceChanged:post.controls };
 }

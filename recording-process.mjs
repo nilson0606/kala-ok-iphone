@@ -1,4 +1,4 @@
-import { ScoringTake } from './scoring.mjs';
+import { ScoringTake, validateReference } from './scoring.mjs';
 import { balanceGains, createRecordingMix } from './recording-mix.mjs';
 export function delaySeconds(ms) {
   if(!Number.isFinite(ms)||Math.abs(ms)>2000)throw new Error('延時需介於 −2000 與 +2000 ms。');
@@ -7,6 +7,20 @@ export function delaySeconds(ms) {
 export function recordedSongTime(segments, offset) {
   const segment=segments.find(s=>offset>=s.offset&&offset<s.offset+s.duration);
   return segment ? segment.songTime+offset-segment.offset : null;
+}
+export function referenceForRescore(post, current) {
+  if (!current) throw new Error('請先載入這首歌的新基準；只更改音高選項還不算載入。');
+  const original=post.reference;
+  validateReference(current);
+  if(current.videoId!==original.videoId)throw new Error('目前載入的是另一支影片，不能用來重評這筆錄音。');
+  const duration=ref=>ref.duration??ref.frames.length*ref.step;
+  if((original.rangeSeconds!=null&&current.rangeSeconds!=null&&original.rangeSeconds!==current.rangeSeconds)||
+    Math.abs(duration(current)-duration(original))>.15||Math.abs(current.frames.length*current.step-original.frames.length*original.step)>.15)
+    throw new Error('請載入與錄音當時相同分析範圍的基準，避免改變計分範圍。');
+  // Change only the melody. Preserve this take's masks and remix stem identity.
+  const selected=structuredClone({...current,masks:original.masks||[]});
+  validateReference(selected);
+  return selected;
 }
 export function rescoreRecording(post, ms) {
   const shift=delaySeconds(ms), take=new ScoringTake(post.reference,post.scoring);

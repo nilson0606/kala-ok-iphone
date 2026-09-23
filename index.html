@@ -145,13 +145,15 @@
     <div class="section-top"><h2 id="post-heading"><span class="step">05</span> 錄音後處理</h2><span class="subtle">調整延時，不必重唱</span></div>
     <label for="post-recording">選擇已保存的錄音</label><select id="post-recording"><option value="">尚無錄音</option></select>
     <p id="post-info" class="help"></p>
+    <label for="post-reference-source">重新評分使用的歌曲基準</label><select id="post-reference-source"><option value="original">錄音當時的基準（預設）</option><option value="current">目前已載入的歌曲基準（比較 RMVPE／其他版本）</option></select>
+    <p id="post-reference-info" class="help" role="status"></p>
     <label for="post-delay">歌聲延時校正（毫秒）</label><input id="post-delay" type="number" min="-2000" max="2000" step="10" value="0">
     <p class="help">正值：歌聲晚到，將歌聲提前；負值：歌聲太早，將歌聲延後。填入總校正量，不是累加；配樂與和音不移動。初始值沿用這次演唱開始時的時間補償。</p>
     <div class="button-row"><button id="post-rescore" type="button" disabled>1. 調延時重新評分</button><button id="post-remix" type="button" disabled>2. 調延時重新合成</button><button id="post-mp3" type="button" class="secondary" disabled>3. 轉 MP3 並下載</button></div>
     <p class="help"><button id="post-diagnostic" type="button" class="secondary" disabled>下載這筆評分診斷</button> 包含這筆原始錄音、乾淨歌聲、時間位置與評分基準；只下載到本機，供檢查對齊問題。</p>
     <p id="post-score" class="score-title" role="status"></p><p id="post-status" class="status" role="status">新版錄音會保存乾淨歌聲與評分資料，後處理只在本機進行。</p>
     <audio id="post-audio" controls hidden></audio>
-    <p class="help">重新評分沿用當次基準、遮罩及評分設定，結果保存於這筆錄音。重新合成會另存一筆，可試聽後再轉 MP3；原錄音保留。配樂／和音需歌曲庫中的同版本音軌。舊錄音若沒有乾淨歌聲及時間資料，只能轉 MP3，不能單獨校正歌聲。選「不保存錄音」時不保留後處理資料。</p>
+    <p class="help">重新評分預設使用錄音當時基準；可選「目前已載入的歌曲基準」比較同一影片、同一分析範圍的其他版本。遮罩與評分設定沿用錄音當時資料，結果與所用基準另存於這筆錄音，原始基準保留。重新合成會另存一筆，可試聽後再轉 MP3；原錄音保留。配樂／和音需歌曲庫中的同版本音軌。舊錄音若沒有乾淨歌聲及時間資料，只能轉 MP3，不能單獨校正歌聲。選「不保存錄音」時不保留後處理資料。</p>
   </section>
   <aside class="notice" aria-label="使用限制與免責聲明"><strong>本機測試用途 · 不得商用</strong><p class="help">本工具僅供本機測試與個人非商業練習。請尊重著作權，只處理您有權使用或已取得授權的內容，不得未經授權下載、複製或散布。本工具不提供歌曲內容或使用授權；使用者應自行確認其使用符合相關法規與平台規範。自動分析與評分僅供測試參考，不保證準確性。</p></aside>
   <footer><span>唱一下 / Local-first experiment</span><span>麥克風 → 本機音高分析 → 畫面</span></footer>

@@ -26,7 +26,7 @@ export function createKaraokeSession(options) {
   let phase = 'idle', loadedVideo = null, lastProgress = 0, rangeComplete = false;
   let libraryLocation = null, locationBusy = false;
   let previewUrl = null, previewRequest = null, previewSerial = 0, restartToken = 0;
-  const recording = createSingerRecorder({voiced: options.voiced, context: options.context, stream: options.stream, player: options.player, pausePlayer: () => { options.player()?.pauseVideo?.(); stopPreview(); }});
+  const recording = createSingerRecorder({reference:()=>phase==='preparing'?null:reference, voiced: options.voiced, context: options.context, stream: options.stream, player: options.player, pausePlayer: () => { options.player()?.pauseVideo?.(); stopPreview(); }});
   const message = text => { $('score-status').textContent = text; };
   function updateMaskView() { displayReference = reference ? applyMasks(reference) : null; excluded = reference ? maskedCells(reference) : []; }
   const maskEditor = createMaskEditor({
@@ -71,7 +71,7 @@ export function createKaraokeSession(options) {
     $('sing-start').disabled = maskBusy || !reference || ['finishing','restarting'].includes(phase);
     $('finish-song').disabled = !take || ['result', 'finishing', 'restarting'].includes(phase);
     $('song-form').querySelector('button').disabled = maskBusy || ['preparing', 'finishing', 'restarting'].includes(phase);
-    maskEditor.controls();
+    maskEditor.controls(); recording.referenceChanged();
   }
   async function api(url, init = {}, timeoutMs = 10000) {
     const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), timeoutMs);

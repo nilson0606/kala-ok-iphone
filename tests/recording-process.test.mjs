@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {rescoreRecording,voicePlacement} from '../recording-process.mjs';
+import {rescoreRecording,voicePlacement,referenceForRescore} from '../recording-process.mjs';
 const reference={version:1,videoId:'M7lc1UVf-VE',title:'Delayed melody',step:.1,duration:8,frames:Array.from({length:80},(_,i)=>[440,523.25,659.25,392][Math.floor(i/10)%4]),masks:[]};
 test('positive delay advances voice and rescoring uses original samples every time',()=>{
  const post={reference,scoring:{rangeMode:'performed'},segments:[{offset:0,songTime:0,duration:8}],samples:reference.frames.map((hz,i)=>({time:i*.1+.301,hz}))};
@@ -27,4 +27,26 @@ test('dense samples with note changes between reference timestamps improve after
  const before=rescoreRecording(post,0),after=rescoreRecording(post,100);
  assert.ok(after.score>before.score,JSON.stringify({before,after}));assert.equal(after.pitch,100);assert.equal(after.rhythm,100);
  console.log('Known 100 ms delay:',JSON.stringify({before,after}));
+});
+
+
+test('existing recordings can use a new reference without changing the original or take masks',()=>{
+ const post={reference:{...reference,pitchMethod:'yin',cacheId:'original',rangeSeconds:0,masks:[{start:1,end:2}]},scoring:{rangeMode:'performed'},segments:[{offset:0,songTime:0,duration:8}],samples:reference.frames.map((_,i)=>({time:i*.1,hz:523.25}))};
+ const current={...reference,pitchMethod:'rmvpe',cacheId:'new',rangeSeconds:0,frames:Array(80).fill(523.25),masks:[{start:0,end:4}]};
+ const before=structuredClone(post),source=structuredClone(current),selected=referenceForRescore(post,current);
+ const score=rescoreRecording({...post,reference:selected},0);
+ assert.equal(score.pitch,100);assert.equal(score.referenceSeconds,7);
+ assert.ok(rescoreRecording(post,0).pitch<score.pitch);
+ assert.deepEqual(selected.masks,post.reference.masks);
+ selected.frames[0]=null;selected.masks[0].start=.5;
+ assert.deepEqual(post,before);assert.deepEqual(current,source);
+});
+
+test('reference changes reject another video, a shortened analysis, missing or invalid reference',()=>{
+ const post={reference:{...reference,rangeSeconds:0}};
+ assert.throws(()=>referenceForRescore(post,null),/載入/);
+ assert.throws(()=>referenceForRescore(post,{...reference,videoId:'abcdefghijk'}),/另一支影片/);
+ assert.throws(()=>referenceForRescore(post,{...reference,rangeSeconds:30}),/分析範圍/);
+ assert.throws(()=>referenceForRescore(post,{...reference,duration:4,frames:reference.frames.slice(0,40)}),/分析範圍/);
+ assert.throws(()=>referenceForRescore(post,{...reference,frames:[null]}),/參考旋律/);
 });
