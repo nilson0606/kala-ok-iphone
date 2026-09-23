@@ -101,8 +101,9 @@ export function createRecordingPost({store,stop,pause,reference=()=>null}) {
   }));
   $('post-mp3').addEventListener('click',()=>run(async row=>{
     status('正在本機轉成 MP3…');const blob=await store.blob(row),response=await localRequest('/recordings/mp3',blob),mp3=await response.blob();
-    const href=URL.createObjectURL(mp3),a=document.createElement('a');a.href=href;a.download=row.title.replace(/[\\/:*?"<>|]/g,'_').slice(0,100)+'.mp3';a.click();setTimeout(()=>URL.revokeObjectURL(href),60000);status('MP3 已轉換並開始下載。');
+    let savedPath='',saveError='';try{savedPath=(await store.saveMp3(row,mp3)).path;}catch(error){saveError=error.message;}
+    const href=URL.createObjectURL(mp3),a=document.createElement('a');a.href=href;a.download=row.title.replace(/[\\/:*?"<>|]/g,'_').slice(0,100)+'.mp3';a.click();setTimeout(()=>URL.revokeObjectURL(href),60000);status(savedPath?'MP3 已轉換並開始下載，同時保存至 '+savedPath+'。':'MP3 已轉換並開始下載，但尚未存入錄音目錄：'+saveError);
   }));
   window.addEventListener('pagehide',clearAudio);
-  return {refresh,select,controls};
+  return {refresh,select,controls,clearAudio};
 }

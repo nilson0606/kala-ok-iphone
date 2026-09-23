@@ -32,7 +32,7 @@ async function health() {
     const checks = { python: packages.ok, node: Number(process.versions.node.split('.')[0]) >= 22, ffmpeg: ffmpeg.ok, ffprobe: ffprobe.ok,
       ytDlp: modules.yt_dlp === true, demucs: modules.demucs === true, torch: modules.torch === true,
       torchaudio: modules.torchaudio === true, soundfile: modules.soundfile === true };
-    cache = { app: 'karaoke-local-helper', version: 1, features: ['library', 'stem-preview', 'library-location', 'separation-progress', 'rebuild-song', 'lead-vocals', 'separation-models', 'score-masks', 'pitch-methods', 'residual-separation', 'mel-roformer', 'recording-mp3'], ready: Object.values(checks).every(Boolean), checks, audioUpload: false };
+    cache = { app: 'karaoke-local-helper', version: 1, features: ['library', 'stem-preview', 'library-location', 'separation-progress', 'rebuild-song', 'lead-vocals', 'separation-models', 'score-masks', 'pitch-methods', 'residual-separation', 'mel-roformer', 'recording-mp3', 'recording-library'], ready: Object.values(checks).every(Boolean), checks, audioUpload: false };
     cacheTime = Date.now(); return cache;
   })().finally(() => { pending = null; });
   return pending;

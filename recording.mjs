@@ -3,7 +3,7 @@ import { createRecordingMix, mixSettings } from './recording-mix.mjs';
 import { RecordingStore } from './recording-store.mjs';
 const $ = id => document.getElementById(id);
 export function createSingerRecorder(options) {
-  const store = new RecordingStore();
+  const store = new RecordingStore({status:text=>{$('recording-storage-status').textContent=text;}});
   try { const saved = localStorage.getItem('karaoke.recording-mode.v1'); if (['voice','mix','off'].includes(saved)) $('recording-mode').value = saved; } catch {}
   let active = null, operation = 0, stopping = Promise.resolve(), previewURL = null;
   try {
@@ -34,13 +34,13 @@ export function createSingerRecorder(options) {
     for (const row of rows) {
       const li = document.createElement('li'), label = document.createElement('strong'), info = document.createElement('small'), buttons = document.createElement('div');
       label.textContent = row.title;
-      info.textContent = `${new Date(row.created).toLocaleString()} · ${row.mode === 'mix' ? (row.stems?.includes('backing') ? '歌唱者＋配樂／和音' : '歌唱者＋配樂（無獨立和音）') : '歌唱者'}${row.balance ? (row.balance.manual ? ' · 手動＋自動' : ' · 自動平衡') : ''} · ${Math.round(row.seconds)} 秒${row.complete ? '' : ' · 未正常結束，保留已儲存片段'}`;
+      info.textContent = `${new Date(row.created).toLocaleString()} · ${row.mode === 'mix' ? (row.stems?.includes('backing') ? '歌唱者＋配樂／和音' : '歌唱者＋配樂（無獨立和音）') : '歌唱者'}${row.balance ? (row.balance.manual ? ' · 手動＋自動' : ' · 自動平衡') : ''} · ${row._archiveRoot?'歌曲庫錄音目錄':'瀏覽器待搬存'} · ${Math.round(row.seconds)} 秒${row.complete ? '' : ' · 未正常結束，保留已儲存片段'}`;
       buttons.className = 'button-row';
       for (const [text, action] of [
         ['試聽', async () => { await stop(); options.pausePlayer(); clearPreview(); previewURL = URL.createObjectURL(await store.blob(row)); $('recording-audio').src = previewURL; $('recording-audio').hidden = false; await $('recording-audio').play(); }],
         ['後處理', async () => { await stop(); post.select(row.id); }],
         ['下載', async () => download(await store.blob(row), row)],
-        ['刪除', async () => { clearPreview(); await store.delete(row.id); await render(); }],
+        ['刪除', async () => { if(!confirm('刪除這筆錄音、原始歌聲及其後處理資料？此操作無法復原。'))return; clearPreview();post.clearAudio(); await store.delete(row.id); await render(); }],
       ]) {
         const button = document.createElement('button'); button.type = 'button'; button.className = 'secondary'; button.textContent = text;
         button.addEventListener('click', async () => { button.disabled = true; try { await action(); } catch (error) { status(error.message); } finally { button.disabled = false; } }); buttons.append(button);
@@ -50,7 +50,7 @@ export function createSingerRecorder(options) {
   }
   function download(blob, meta) {
     const url = URL.createObjectURL(blob), link = document.createElement('a');
-    link.href = url; link.download = `${meta.title.replace(/[\\/:*?"<>|]/g,'_').slice(0,80)}-${new Date(meta.created).toISOString().replace(/[:.]/g,'-')}.${meta.mime.includes('mp4') ? 'm4a' : 'webm'}`;
+    link.href = url; link.download = `${meta.title.replace(/[\\/:*?"<>|]/g,'_').slice(0,80)}-${new Date(meta.created).toISOString().replace(/[:.]/g,'-')}.${meta.mime.includes('wav') ? 'wav' : meta.mime.includes('mp4') ? 'm4a' : 'webm'}`;
     link.click(); setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
   function stopBacking(a) {
@@ -141,7 +141,7 @@ export function createSingerRecorder(options) {
       if (a.recorder.state === 'inactive') { a.recorder.start(1000); a.rawRecorder.start(1000); }
       else if (a.recorder.state === 'paused') { a.recorder.resume(); a.rawRecorder.resume(); }
       if (a.since === null) a.since = performance.now();
-      syncTimeline(a,time); syncBacking(a,time); status(`● 錄音中 · ${a.meta.mode === 'mix' ? (a.meta.stems.includes('backing') ? '歌唱者＋配樂／和音' : '歌唱者＋配樂（無獨立和音）') : '歌唱者'}（自動保存於此瀏覽器）`);
+      syncTimeline(a,time); syncBacking(a,time); status(`● 錄音中 · ${a.meta.mode === 'mix' ? (a.meta.stems.includes('backing') ? '歌唱者＋配樂／和音' : '歌唱者＋配樂（無獨立和音）') : '歌唱者'}（錄製中暫存，停止後存入歌曲庫）`);
     } else if (state === 0) { stop(); }
     else {
       closeSegment(a);
@@ -186,6 +186,12 @@ export function createSingerRecorder(options) {
     }
   }, 100);
   window.addEventListener('recording-post-saved',()=>render().catch(error=>status(error.message)));
+  $('recording-delete-all').addEventListener('click',async()=>{
+    if(active){status('請先停止收音，再刪除全部錄音。');return;}
+    if(!confirm('刪除目前錄音清單的全部錄音、原始歌聲、重合成音檔及後處理資料？不會刪除歌曲基準或分離音軌。此操作無法復原。'))return;
+    const button=$('recording-delete-all');button.disabled=true;
+    try{await stop();options.pausePlayer();clearPreview();post.clearAudio();const count=await store.deleteAll();await render();status(`已刪除 ${count} 筆錄音及其後處理資料。`);}catch(error){status('未全部刪除：'+error.message);}finally{button.disabled=false;}
+  });
   $('recording-refresh').addEventListener('click',()=>render().catch(error=>status(error.message)));
   $('recording-mode').addEventListener('change',()=>{ controls(); try { localStorage.setItem('karaoke.recording-mode.v1',$('recording-mode').value); } catch {} status($('recording-mode').value === 'off' ? '不保存錄音；從頭開始唱只收音評分。' : '按「從頭開始唱」後自動錄製；停止收音、結算或播完時保存。'); });
   for(const id of ['recording-manual','recording-voice-level','recording-backing-level']) $(id).addEventListener('input',()=>{

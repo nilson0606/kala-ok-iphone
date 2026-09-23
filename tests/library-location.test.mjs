@@ -49,7 +49,7 @@ test('helper enforces setup, auth and idle-only changes; selected library surviv
   }
   async function stop() { if (child && child.exitCode === null) { const exited = new Promise(resolve => child.once('exit', resolve)); child.kill(); await exited; } }
   try {
-    for (const file of ['helper-local.mjs', 'local-jobs.mjs', 'recording-export.mjs', 'local-library.mjs', 'library-location.mjs', 'scoring.mjs']) await copyFile(new URL('../' + file, import.meta.url), path.join(dir, file));
+    for (const file of ['helper-local.mjs', 'local-jobs.mjs', 'recording-export.mjs', 'recording-archive.mjs', 'local-library.mjs', 'library-location.mjs', 'scoring.mjs']) await copyFile(new URL('../' + file, import.meta.url), path.join(dir, file));
     // Bind a random test port without exposing the helper outside loopback.
     const helper = path.join(dir, 'helper-local.mjs');
     let source = await readFile(helper, 'utf8');
@@ -58,11 +58,14 @@ test('helper enforces setup, auth and idle-only changes; selected library surviv
     await start();
     assert.equal((await request('/library/location', 'GET', undefined, false)).status, 403);
     assert.equal((await request('/recordings/mp3','POST',{},false)).status,403);
+    assert.equal((await request('/recordings','GET',undefined,false)).status,403);
     assert.equal((await request('/recordings/mp3','POST',{})).status,400);
     assert.equal((await (await request('/library/location')).json()).configured, false);
     assert.equal((await request('/jobs', 'POST', { videoId: 'M7lc1UVf-VE', seconds: 30 })).status, 409);
     const first = path.join(dir, 'first'), second = path.join(dir, 'second');
     assert.equal((await request('/library/location', 'POST', { path: first })).status, 200);
+    assert.equal((await request('/recordings?root=wrong')).status,400);
+    assert.equal((await (await request('/recordings')).json()).path,path.join(first,'錄音'));
     const library = new LocalLibrary(first), id = cacheKey('M7lc1UVf-VE', 30);
     await library.save(id, { version: 1, videoId: 'M7lc1UVf-VE', title: 'Retained', step: .1, frames: Array(40).fill(440), duration: 4, rangeSeconds: 30 }, dir, false);
     assert.equal((await request('/jobs','POST',{videoId:'M7lc1UVf-VE',seconds:30,separationModel:'unknown'})).status,400);

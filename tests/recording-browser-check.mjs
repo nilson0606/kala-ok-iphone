@@ -218,7 +218,9 @@ try {
   // Reload preserves all recordings; delete only removes the selected recording.
   await page.locator('#recording-mode').selectOption('off');
   await page.reload();assert.equal(await page.locator('#recording-mode').inputValue(),'off');assert.ok(await page.locator('#recording-manual').isChecked());assert.equal(await page.locator('#recording-voice-level').inputValue(),'60');assert.equal(await page.locator('#recording-backing-level').inputValue(),'80');await page.locator('#recordings-panel summary').click();await page.waitForFunction(()=>document.querySelectorAll('#recording-list li button').length===16);
+  page.once('dialog',dialog=>dialog.accept());
   await page.locator('#recording-list').getByRole('button',{name:'刪除',exact:true}).first().click();await page.waitForFunction(()=>document.querySelectorAll('#recording-list li button').length===12);
+  page.once('dialog',dialog=>dialog.accept());await page.locator('#recording-delete-all').click();await page.waitForFunction(()=>document.querySelector('#recording-status').textContent.includes('已刪除 3 筆'));
   await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   const peak=await page.evaluate(async()=>{
     const script=document.querySelector('script[src*="app."]').src;

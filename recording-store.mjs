@@ -1,5 +1,5 @@
 // Audio stays in IndexedDB on this browser; each chunk commits separately.
-export class RecordingStore {
+export class BrowserRecordingStore {
   constructor() { this.db = null; }
   async open() {
     if (!this.db) this.db = new Promise((resolve, reject) => {
@@ -46,5 +46,78 @@ export class RecordingStore {
       tx.objectStore('chunks').delete(IDBKeyRange.bound([id,0],[id,Number.MAX_SAFE_INTEGER]));
       tx.objectStore('chunks').delete(IDBKeyRange.bound([id+':voice',0],[id+':voice',Number.MAX_SAFE_INTEGER]));
     });
+  }
+}
+
+
+// IndexedDB buffers an active take. Completed recordings move to the local helper.
+export class RecordingStore {
+  constructor({status=()=>{}}={}){this.browser=new BrowserRecordingStore();this.status=status;this.pending=Promise.resolve();this.diskRows=[];this.session=null;}
+  open(){return this.browser.open();}
+  serial(work){const result=this.pending.then(work);this.pending=result.catch(()=>{});return result;}
+  async request(route,{method='GET',body,root}={}){
+    const base='http://127.0.0.1:4174';
+    if(!this.session||Date.now()-this.session.time>5000){const r=await fetch(base+'/session',{signal:AbortSignal.timeout(5000)});if(!r.ok)throw new Error('本機工具無法連接。');this.session={...await r.json(),time:Date.now()};}
+    if(!this.session.features?.includes('recording-library'))throw new Error('請更新並重新啟動本機工具，才能搬存錄音。');
+    const url=base+route+(root?'?root='+encodeURIComponent(root):'');
+    const r=await fetch(url,{method,headers:{'X-Karaoke-Token':this.session.token,...(body?{'Content-Type':'application/octet-stream'}:{})},body,signal:AbortSignal.timeout(body?180000:30000)});
+    if(!r.ok){if(r.status===403)this.session=null;const value=await r.json().catch(()=>({}));throw new Error(value.error||'錄音資料夾操作失敗。');}return r;
+  }
+  async info(){return (await this.request('/recordings')).json();}
+  async move(meta,info){
+    if(info.deleted.includes(meta.id)){await this.browser.delete(meta.id);return null;}
+    let stored=info.records.find(r=>r.id===meta.id);
+    if(!stored){
+      const mix=await this.browser.blob(meta),voice=meta.rawBytes?await this.browser.blob(meta,'voice'):new Blob();
+      if(mix.size!==meta.bytes||voice.size!==(meta.rawBytes||0))throw new Error('瀏覽器原始音檔不完整，未搬存也未刪除。');
+      const bytes=new TextEncoder().encode(JSON.stringify(meta)),prefix=new Uint8Array(4);new DataView(prefix.buffer).setUint32(0,bytes.length,true);
+      stored=await(await this.request('/recordings/'+meta.id,{method:'POST',body:new Blob([prefix,bytes,mix,voice]),root:info.path})).json();
+    }
+    if(stored.bytes!==meta.bytes||(stored.rawBytes||0)!==(meta.rawBytes||0))throw new Error('本機錄音大小與瀏覽器副本不符，保留原檔。');
+    // Server commits and re-reads the complete manifest/audio sizes before replying.
+    await this.browser.delete(meta.id);
+    return stored;
+  }
+  save(meta,chunk,index,track='mix'){
+    if(chunk&&!meta.complete)return this.browser.save(meta,chunk,index,track);
+    return this.serial(async()=>{
+      if(meta._archiveRoot&&!chunk){
+        const stored=await(await this.request('/recordings/'+meta.id+'/metadata',{method:'POST',body:new Blob([JSON.stringify(meta)]),root:meta._archiveRoot})).json();
+        this.diskRows=this.diskRows.map(r=>r.id===meta.id?stored:r);return;
+      }
+      await this.browser.save(meta,chunk,index,track);
+      if(meta.complete&&meta.bytes){try{const info=await this.info(),stored=await this.move(meta,info);if(stored){Object.assign(meta,stored);this.diskRows=[stored,...this.diskRows.filter(r=>r.id!==meta.id)];}this.status('已保存至 '+info.path+'。');}catch(error){this.status('暫存在此瀏覽器，尚未搬存：'+error.message);}}
+    });
+  }
+  list(){return this.serial(async()=>{
+    const local=await this.browser.list();let info;
+    try{info=await this.info();}catch(error){this.status('本機錄音目錄未連線；瀏覽器待搬存資料仍保留。'+error.message);return [...local,...this.diskRows.filter(r=>!local.some(l=>l.id===r.id))].sort((a,b)=>b.created-a.created);}
+    const records=new Map(info.records.map(row=>[row.id,row]));let moved=0;const errors=[];
+    for(const row of local){
+      if(info.deleted.includes(row.id)){await this.browser.delete(row.id);continue;}
+      if(row.complete){try{this.status(`正在搬存錄音 ${moved+1}：${row.title}…`);const stored=await this.move(row,info);if(stored)records.set(row.id,stored);moved++;continue;}catch(error){errors.push(error.message);}}
+      if(!records.has(row.id))records.set(row.id,row);
+    }
+    this.diskRows=[...records.values()].filter(r=>r._archiveRoot);
+    this.status(`錄音位置：${info.path}。${moved?'已搬存 '+moved+' 筆，瀏覽器舊副本已清除。':''}${errors.length?'部分錄音仍留在瀏覽器：'+errors[0]:''}`);
+    return [...records.values()].sort((a,b)=>b.created-a.created);
+  });}
+  async blob(meta,track='mix'){
+    if(meta._archiveRoot)return (await this.request('/recordings/'+meta.id+'/'+track,{root:meta._archiveRoot})).blob();
+    const local=await this.browser.blob(meta,track);if(local.size)return local;
+    const stored=this.diskRows.find(r=>r.id===meta.id);if(stored)return this.blob(stored,track);
+    return local;
+  }
+  delete(id){return this.serial(async()=>{
+    const known=this.diskRows.find(r=>r.id===id);let info;
+    try{info=await this.info();}catch(error){if(known)throw error;}
+    const disk=info?.records.find(r=>r.id===id)||known;
+    if(disk){await this.request('/recordings/'+id,{method:'DELETE',root:disk._archiveRoot});}
+    await this.browser.delete(id);this.diskRows=this.diskRows.filter(r=>r.id!==id);
+  });}
+  async deleteAll(){const rows=await this.list();for(const row of rows)await this.delete(row.id);return rows.length;}
+  async saveMp3(meta,blob){
+    const info=await this.info(),stored=info.records.find(r=>r.id===meta.id);if(!stored)throw new Error('請先將這筆錄音搬存到歌曲庫。');
+    return (await this.request('/recordings/'+meta.id+'/mp3',{method:'POST',body:blob,root:stored._archiveRoot})).json();
   }
 }
