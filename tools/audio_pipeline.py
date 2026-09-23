@@ -109,7 +109,7 @@ def choose_device(mode='auto'):
     return {'device': 'cpu', 'deviceName': 'CPU'}
 
 
-def separate_audio(audio, job, mode='auto', model='demucs'):
+def separate_audio(audio, job, mode='auto', model='demucs', *, preserve_gain=False, stage='separating'):
     if model not in ('demucs', 'bs-roformer'):
         raise ValueError('Invalid separation model')
     selected = choose_device(mode)
@@ -118,16 +118,20 @@ def separate_audio(audio, job, mode='auto', model='demucs'):
         if model == 'bs-roformer':
             worker_env = dict(env)
             if device == 'cpu':
-                worker_env['CUDA_VISIBLE_DEVICES'] = ''
+                # This branch already selected CPU (explicitly or after GPU failure).
+                # With an empty mask this Windows runtime reports available=True but
+                # device_count=0. The explicit no-device sentinel avoids that mismatch.
+                worker_env['CUDA_VISIBLE_DEVICES'] = '-1'
             run_separation([sys.executable, ROOT / 'tools' / 'lead_separator.py',
                             '--model', 'bs-roformer', '--input', audio,
                             '--output', job / 'stems' / 'bs-roformer' / audio.stem,
-                            '--models', ROOT / '.runtime' / 'models' / 'bs-roformer'], env=worker_env)
+                            '--models', ROOT / '.runtime' / 'models' / 'bs-roformer'] + (['--preserve-gain'] if preserve_gain else []), env=worker_env, stage=stage)
             return
-        run_separation([sys.executable, '-m', 'demucs.separate', '--two-stems', 'vocals',
+        command = [sys.executable, ROOT / 'tools' / 'demucs_lossless.py'] if preserve_gain else [sys.executable, '-m', 'demucs.separate']
+        run_separation(command + ['--two-stems', 'vocals',
                         '-n', 'htdemucs', '-d', device, '--shifts', '0', '--float32',
-                        '-o', job / 'stems', audio], timeout=1800, env=env)
-    emit('separating', model=model, progress=0, **selected)
+                        '-o', job / 'stems', audio], timeout=1800, env=env, stage=stage)
+    emit(stage, model=model, progress=0, **selected)
     try:
         attempt(selected['device'])
     except RuntimeError as error:
@@ -138,7 +142,7 @@ def separate_audio(audio, job, mode='auto', model='demucs'):
         # The failed child has exited, releasing its GPU allocations. Retry once in a
         # new CPU process; successful outputs replace any partially written stems.
         selected = {'device': 'cpu', 'deviceName': 'CPU', 'fallback': True}
-        emit('separating', model=model, progress=0, **selected)
+        emit(stage, model=model, progress=0, **selected)
         attempt('cpu')
     return selected
 
@@ -195,6 +199,7 @@ def main():
     parser.add_argument('--reference', action='store_true', help='Build a temporary melody/beat reference')
     parser.add_argument('--preview', action='store_true', help='Keep compressed stems for optional local listening')
     parser.add_argument('--separation-model', choices=['demucs', 'bs-roformer'], default='demucs')
+    parser.add_argument('--separation-method', choices=['single', 'residual'], default='single')
     parser.add_argument('--pitch-method', choices=['yin', 'rmvpe'], default='yin')
     parser.add_argument('--vocal-mode', choices=['all', 'lead'], default='all')
     parser.add_argument('--device', choices=['auto', 'cpu'], default='auto', help='Prefer CUDA when available, or force CPU')
@@ -207,6 +212,8 @@ def main():
             parser.error(f'{command} is required on PATH')
     if args.reference and (not args.url or not args.separate):
         parser.error('--reference requires --url and --separate')
+    if args.separation_method == 'residual' and not args.separate:
+        parser.error('--separation-method residual requires --separate')
     if args.vocal_mode == 'lead' and not args.separate:
         parser.error('--vocal-mode lead requires --separate')
     if args.preview and not args.reference:
@@ -242,17 +249,21 @@ def main():
         emit('validated', **original)
         report = {'source': {'path': str(audio), **original}, 'stems': {}, 'temporary': True}
         if args.separate:
-            report['separation'] = separate_audio(audio, job, args.device, args.separation_model)
-            stem_dir = job / 'stems' / ('htdemucs' if args.separation_model == 'demucs' else 'bs-roformer') / audio.stem
-            for name, filename in [('vocals', 'vocals.wav'), ('accompaniment', 'no_vocals.wav')]:
-                file = stem_dir / filename
+            if args.separation_method == 'residual':
+                from residual_separation import prepare_residual
+                stems, report['separation'] = prepare_residual(audio, job, args.device, args.separation_model,
+                                                             separate=separate_audio, run=run, emit=emit)
+            else:
+                report['separation'] = separate_audio(audio, job, args.device, args.separation_model)
+                stem_dir = job / 'stems' / ('htdemucs' if args.separation_model == 'demucs' else 'bs-roformer') / audio.stem
+                stems = {'vocals': stem_dir / 'vocals.wav', 'accompaniment': stem_dir / 'no_vocals.wav'}
+            report['separationMethod'] = args.separation_method
+            for name, file in stems.items():
                 result = validate_audio(file)
                 if abs(result['duration'] - original['duration']) > .15:
                     raise ValueError(f'{name} duration does not match source')
                 report['stems'][name] = {'path': str(file), **result}
                 emit('stem_validated', stem=name, **result)
-        if args.separate:
-            stems = {'vocals': stem_dir / 'vocals.wav', 'accompaniment': stem_dir / 'no_vocals.wav'}
             if args.vocal_mode == 'lead':
                 report['leadSeparation'] = separate_lead(stems['vocals'], job, args.device)
                 for name in ['lead', 'backing']:
@@ -270,6 +281,7 @@ def main():
             value = json.loads((job / 'reference.json').read_text(encoding='utf-8'))
             value['vocalMode'] = args.vocal_mode
             value['separationModel'] = args.separation_model
+            value['separationMethod'] = args.separation_method
             (job / 'reference.json').write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
             if args.preview:
                 for name, file in stems.items():

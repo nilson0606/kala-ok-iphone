@@ -39,6 +39,20 @@ class RoformerInputTests(unittest.TestCase):
             self.assertEqual(mp3.read_bytes(),original)
             self.assertFalse(list(root.glob('.decoded-input-*')))
 
+    def test_residual_writers_preserve_peaks_and_stereo_gain(self):
+        from audio_separator.separator.common_separator import CommonSeparator
+        from demucs_lossless import save_float
+        import torch
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            audio=np.array([[1.4,.3],[-1.2,-.5],[.6,.2]],dtype='float32')
+            writer=SimpleNamespace(logger=logging.getLogger('residual-export'),normalization_threshold=float('inf'),amplification_threshold=0,
+                                   output_dir=str(root),input_subtype='FLOAT',input_bit_depth=32,sample_rate=44100)
+            CommonSeparator.write_audio_soundfile(writer,'bs.wav',audio.copy())
+            save_float(torch.tensor(audio.T),root/'demucs.wav',44100)
+            for model in ['bs','demucs']:
+                np.testing.assert_array_equal(sf.read(root/(model+'.wav'),dtype='float32')[0],audio)
+
     def test_existing_pcm_wav_stays_untouched_and_failed_work_cleans_decode(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory); source=root/'source.wav'

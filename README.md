@@ -150,3 +150,16 @@ RMVPE 驗證：33 項 JavaScript、24 項 Python 測試；Edge／Chrome 的正�
 試聽依已載入 `reference.cacheId` 取得音檔；Demucs／BS 使用不同 ID。試聽區固定顯示實際歌曲、模型與模式。改選尚未套用的分離模型／人聲模式會停止並清除舊 blob，停用試聽直到準備完成；只切換音高方式不改音軌。前端取檔也明確 `cache: no-store`（本機 API 原有 `Cache-Control: no-store`）。Edge／Chrome 回歸測試使用不同音訊 bytes 模擬兩模型，逐一核對實際請求 ID 和 audio 元件 blob 雜湊，包含切回 Demucs。
 
 另在本機實際比對《老鼠愛大米》Demucs／BS 的試聽 API bytes 與歌曲庫檔案一致、雜湊不同；取第 45、90、180 秒各 8 秒解碼後，三段 PCM 都不同，排除只差檔案標頭。此檢查證明音軌有切換，不代表 BS 分離品質一定更好。
+
+
+## 伴奏二次分離與反向相減（選用）
+
+「歌曲基準處理流程」預設 `single`，保持原有分離管線；`residual` 使用所選 Demucs 或 BS-RoFormer 連續處理原曲和第一輪伴奏，再計算 `V = M - I2`。不是把第一輪伴奏直接相減，也不是將人聲再淨化。可與主唱／和音、YIN／RMVPE 組合；主唱分離放在相減後。
+
+新流程先將來源轉為 44.1 kHz 雙聲道浮點 WAV，兩輪輸出禁用獨立音量正規化／削波。Demucs 由 `tools/demucs_lossless.py` 在子程序內改用 float writer；BS worker 的 `--preserve-gain` 關閉輸入及輸出峰值縮放，不修改已安裝的套件。`tools/residual_separation.py` 驗證相同樣本長度、聲道與取樣率，以區塊相減並拒絕非有限數值。未對齊不默默截切或補零。
+
+歌曲 metadata 新增 `separationMethod`；舊資料缺欄位視為 `single`。新 cache ID 在 `_v1` 前加 `_residual`，模型、模式與音高方式各自區隔。跨 YIN／RMVPE 重用音軌限於同一流程；遮罩仍以影片和分析範圍共用。API capability 為 `residual-separation`，舊 helper 必須更新重啟，前端會明確提示。
+
+進度新增第二輪伴奏與反向相減，第二輪從 0% 開始；相減沒有假造進度。整體等待上限新流程為 60 分鐘，單次仍為 30 分鐘，單個模型子程序仍有原本逾時限制。兩種流程在歌單與試聽來源均有標示；改選但未載入時停用舊試聽。新流程不保證較乾淨，需以實際歌曲比較。
+
+本次驗證：35 項 JavaScript、30 項 Python 測試通過；Edge／Chrome 驗證單次／二次流程切換、實際載入的試聽 bytes、第二輪進度、舊 helper 攔截、遮罩與 YIN／RMVPE 組合。另以 2 秒合成雙聲道音訊在 CPU 實際跑完 Demucs 與 BS-RoFormer 各兩輪，88200 個樣本保持對齊，`V + I2` 與混音最大誤差低於 2e-7。這些只驗證流程和波形運算，不代表整首長時間負載或真人歌曲分離品質驗證。短測另外發現 Windows 的空 CUDA 裝置遮罩會產生 available=true、count=0；BS worker 已選定 CPU 時改用明確的 -1 遮罩，預設 GPU 選擇不變。

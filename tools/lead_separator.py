@@ -29,6 +29,7 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--models', type=Path, required=True)
     parser.add_argument('--model', choices=MODELS, default='karaoke')
+    parser.add_argument('--preserve-gain', action='store_true')
     args = parser.parse_args()
     model, stems = MODELS[args.model]
     args.output.mkdir(parents=True, exist_ok=True)
@@ -40,6 +41,11 @@ def main():
     # MP3's MPEG_LAYER_III subtype for a WAV output after expensive inference.
     with decoded_wav(args.input, args.output) as model_input:
         separator.load_model(model_filename=model)
+        if args.preserve_gain:
+            # Only the residual workflow disables independent input/output peak scaling.
+            # Float WAV preserves peaks above 1 without clipping. No installed files change.
+            separator.model_instance.normalization_threshold = float('inf')
+            separator.model_instance.amplification_threshold = 0.0
         # Karaoke receives vocals; BS-RoFormer receives the original mix.
         separator.separate(str(model_input), stems)
     if not all((args.output / (stem + '.wav')).is_file() for stem in stems.values()):

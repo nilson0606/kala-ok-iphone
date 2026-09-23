@@ -19,7 +19,7 @@ def rebuild(source, job, pitch_method, preview):
                     source / 'accompaniment.mp3', value['videoId'], value['title'], job / 'reference.json',
                     pitch_method=pitch_method, progress=lambda n: emit('reference', progress=n, message='RMVPE 音高擷取'))
     result = json.loads((job / 'reference.json').read_text(encoding='utf-8'))
-    result.update(vocalMode=value.get('vocalMode','all'), separationModel=value.get('separationModel','demucs'))
+    result.update(vocalMode=value.get('vocalMode','all'), separationModel=value.get('separationModel','demucs'), separationMethod=value.get('separationMethod','single'))
     (job / 'reference.json').write_text(json.dumps(result, ensure_ascii=False), encoding='utf-8')
     if preview:
         for name in names:

@@ -72,7 +72,7 @@ class DeviceTests(unittest.TestCase):
             self.assertEqual(run.call_count,2)
             self.assertEqual(run.call_args_list[0].args[0][3],'bs-roformer')
             self.assertIn(Path('test-job/stems/bs-roformer/input'),run.call_args_list[0].args[0])
-            self.assertEqual(run.call_args_list[1].kwargs['env']['CUDA_VISIBLE_DEVICES'],'')
+            self.assertEqual(run.call_args_list[1].kwargs['env']['CUDA_VISIBLE_DEVICES'],'-1')
             self.assertEqual([c.kwargs['model'] for c in emit.call_args_list],['bs-roformer','bs-roformer'])
         self.assertEqual(separation_progress(' 20%|## | 2/10 [00:01<00:03, 2.02it/s]'),20)
         self.assertIsNone(separation_progress('20%|## | 182M/913M [00:04<00:17, 40.8MiB/s]'))

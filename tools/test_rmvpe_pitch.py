@@ -41,7 +41,7 @@ class RmvpeTests(unittest.TestCase):
     def test_saved_stems_build_another_method_without_mutating_source(self):
         with tempfile.TemporaryDirectory(prefix='karaoke-rmvpe-') as folder:
             root=Path(folder);source=root/'source';source.mkdir();job=root/'job';job.mkdir()
-            metadata={'videoId':'M7lc1UVf-VE','title':'Fixture','duration':8,'vocalMode':'lead','separationModel':'bs-roformer'}
+            metadata={'videoId':'M7lc1UVf-VE','title':'Fixture','duration':8,'vocalMode':'lead','separationModel':'bs-roformer','separationMethod':'residual'}
             (source/'reference.json').write_text(json.dumps(metadata))
             for name in ['vocals','accompaniment','lead','backing']:(source/(name+'.mp3')).write_bytes(name.encode())
             before={p.name:p.read_bytes() for p in source.iterdir()}
@@ -52,6 +52,6 @@ class RmvpeTests(unittest.TestCase):
                 rebuild(source,job,'rmvpe',True)
             self.assertEqual(before,{p.name:p.read_bytes() for p in source.iterdir()})
             self.assertEqual((job/'lead.mp3').read_bytes(),b'lead')
-            result=json.loads((job/'reference.json').read_text());self.assertEqual(result['pitchMethod'],'rmvpe');self.assertEqual(result['separationModel'],'bs-roformer')
+            result=json.loads((job/'reference.json').read_text());self.assertEqual(result['pitchMethod'],'rmvpe');self.assertEqual(result['separationModel'],'bs-roformer');self.assertEqual(result['separationMethod'],'residual')
 
 if __name__=='__main__':unittest.main()

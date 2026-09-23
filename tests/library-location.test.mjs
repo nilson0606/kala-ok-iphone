@@ -83,6 +83,17 @@ test('helper enforces setup, auth and idle-only changes; selected library surviv
     assert.equal(rmJob.cached,true);assert.equal(rmJob.pitchMethod,'rmvpe');
     assert.equal((await (await request('/jobs/'+rmJob.id+'/reference')).json()).pitchMethod,'rmvpe');
 
+    assert.equal((await request('/jobs','POST',{videoId:'M7lc1UVf-VE',seconds:30,separationMethod:'unknown'})).status,400);
+    const residualId=cacheKey('M7lc1UVf-VE',30,'all','demucs','yin','residual');
+    await library.save(residualId,{version:1,videoId:'M7lc1UVf-VE',title:'Residual',step:.1,frames:Array(40).fill(440),duration:4,rangeSeconds:30,separationMethod:'residual'},dir,true);
+    const residualJob=await(await request('/jobs','POST',{videoId:'M7lc1UVf-VE',seconds:30,separationMethod:'residual',preview:true})).json();
+    assert.equal(residualJob.cached,true);assert.equal(residualJob.cacheId,residualId);
+    assert.equal((await(await request('/jobs/'+residualJob.id+'/reference')).json()).separationMethod,'residual');
+    assert.equal(await(await request('/library/'+residualId+'/vocals')).text(),'bs-vocals');
+    await request('/library/'+residualId+'/masks','POST',{masks:[{start:1,end:2}]});
+    assert.deepEqual((await library.get(id)).masks,[{start:1,end:2}]);
+    await request('/library/'+residualId,'DELETE');
+    assert.ok(await library.get(id));
     const masks=[{start:1,end:2}];
     assert.equal((await request('/library/'+id+'/masks','POST',{masks},false)).status,403);
     assert.equal((await request('/library/'+id+'/masks','POST',{masks:[{start:0,end:99}]})).status,400);

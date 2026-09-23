@@ -163,3 +163,30 @@ test('YIN and RMVPE caches are separate but share masks only for the same video/
     await library.save(rmvpe,{...ref,pitchMethod:'rmvpe'},dir,false);assert.deepEqual((await library.get(rmvpe)).masks,[{start:5,end:6}]);
   } finally {if(path.dirname(path.resolve(dir))===path.resolve(tmpdir())&&path.basename(dir).startsWith('karaoke-library-'))await rm(dir,{recursive:true,force:true});}
 });
+
+test('residual workflow isolates results, preserves legacy defaults and shares masks', async () => {
+ const dir=await mkdtemp(path.join(tmpdir(),'karaoke-library-'));
+ try {
+  const library=new LocalLibrary(path.join(dir,'library'));
+  const ref={version:1,videoId:'M7lc1UVf-VE',title:'Original',step:.1,frames:Array(100).fill(440),duration:10,rangeSeconds:30};
+  const old=cacheKey(ref.videoId,30), residual=cacheKey(ref.videoId,30,'all','demucs','yin','residual');
+  await writeFile(path.join(dir,'vocals.mp3'),'old');await writeFile(path.join(dir,'accompaniment.mp3'),'backing');
+  await library.save(old,ref,dir,true);
+  await writeFile(path.join(dir,'vocals.mp3'),'residual');
+  await library.save(residual,{...ref,separationMethod:'residual'},dir,true);
+  assert.equal((await library.get(old)).separationMethod,'single');
+  assert.equal((await library.audio(old,'vocals')).toString(),'old');
+  assert.equal((await library.audio(residual,'vocals')).toString(),'residual');
+  await library.setMasks(residual,[{start:2,end:4}]);
+  assert.deepEqual((await library.get(old)).masks,[{start:2,end:4}]);
+  const advanced=cacheKey(ref.videoId,30,'lead','bs-roformer','rmvpe','residual');
+  await library.save(advanced,{...ref,vocalMode:'lead',separationModel:'bs-roformer',pitchMethod:'rmvpe',separationMethod:'residual'},dir,false);
+  assert.deepEqual((await library.get(advanced)).masks,[{start:2,end:4}]);
+  await assert.rejects(library.save(residual,ref,dir,true));
+  await assert.rejects(library.save(residual,{...ref,separationMethod:'residual'},path.join(dir,'missing'),true,{replace:true}));
+  assert.equal((await library.audio(residual,'vocals')).toString(),'residual');
+  assert.equal((await library.list()).length,3);
+  assert.throws(()=>cacheKey(ref.videoId,30,'all','demucs','yin','unknown'));
+  await library.delete(residual); assert.ok(await library.get(old));assert.ok(await library.get(advanced));
+ } finally {if(path.dirname(path.resolve(dir))===path.resolve(tmpdir())&&path.basename(dir).startsWith('karaoke-library-'))await rm(dir,{recursive:true,force:true});}
+});

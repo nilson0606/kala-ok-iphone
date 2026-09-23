@@ -53,13 +53,13 @@ try {
       } else await route.fallback();
     });
   }
-  let serial = 0, supportModels = true, supportPitch = true, firstPoll = 0, failMaskSave = false;
+  let serial = 0, supportModels = true, supportPitch = true, supportResidual = true, residualPoll = 0, firstPoll = 0, failMaskSave = false;
   const library = new Map(), sharedMasks = new Map();
   await page.route('http://127.0.0.1:4174/**', async route => {
     const req=route.request(), url=new URL(req.url()); let value={};
-    if(url.pathname==='/session')value={token:'fixture',features:['library','library-location','separation-progress','rebuild-song','lead-vocals','score-masks',...(supportPitch?['pitch-methods']:[]),...(supportModels?['separation-models']:[])]};
+    if(url.pathname==='/session')value={token:'fixture',features:['library','library-location','separation-progress','rebuild-song','lead-vocals','score-masks',...(supportResidual?['residual-separation']:[]),...(supportPitch?['pitch-methods']:[]),...(supportModels?['separation-models']:[])]};
     else if(url.pathname==='/library/location')value={configured:true,path:'C:/fixture-only'};
-    else if(url.pathname==='/library')value={songs:[...library.values()].map(r=>({id:r.cacheId,title:r.title,videoId:r.videoId,seconds:r.rangeSeconds,hasPreview:r.hasPreview,vocalMode:r.vocalMode,separationModel:r.separationModel,pitchMethod:r.pitchMethod,bytes:1000}))};
+    else if(url.pathname==='/library')value={songs:[...library.values()].map(r=>({id:r.cacheId,title:r.title,videoId:r.videoId,seconds:r.rangeSeconds,hasPreview:r.hasPreview,vocalMode:r.vocalMode,separationModel:r.separationModel,pitchMethod:r.pitchMethod,separationMethod:r.separationMethod,bytes:1000}))};
     else if(req.method()==='DELETE') {removed.push(url.pathname);value={cleared:true};}
     else if(url.pathname.endsWith('/masks') && req.method()==='POST') {
       if(failMaskSave){await route.fulfill({status:400,json:{error:'Fixture disk write failure'},headers:{'Access-Control-Allow-Origin':site}});return;}
@@ -69,17 +69,19 @@ try {
     else if(req.method()==='POST') {requests.push(req.postDataJSON());value={id:String(++serial).padStart(32,'0')};}
     else if(url.pathname.endsWith('/reference')) {
       const request=requests[Number(url.pathname.split('/')[2])-1];
-      value={version:1,videoId:request.videoId,vocalMode:request.vocalMode||'all',separationModel:request.separationModel||'demucs',pitchMethod:request.pitchMethod||'yin',cacheId:request.videoId+'_30'+(request.vocalMode==='lead'?'_lead':'')+(request.separationModel==='bs-roformer'?'_bs-roformer':'')+(request.pitchMethod==='rmvpe'?'_rmvpe':'')+'_v1',title:'Preview fixture',step:.1,duration:30,frames:Array(300).fill(440),rangeSeconds:request.seconds,hasPreview:Number(url.pathname.split('/')[2]) > 1,beats:[],bpm:0};
+      value={version:1,videoId:request.videoId,vocalMode:request.vocalMode||'all',separationModel:request.separationModel||'demucs',pitchMethod:request.pitchMethod||'yin',separationMethod:request.separationMethod||'single',cacheId:request.videoId+'_30'+(request.vocalMode==='lead'?'_lead':'')+(request.separationModel==='bs-roformer'?'_bs-roformer':'')+(request.pitchMethod==='rmvpe'?'_rmvpe':'')+(request.separationMethod==='residual'?'_residual':'')+'_v1',title:'Preview fixture',step:.1,duration:30,frames:Array(300).fill(440),rangeSeconds:request.seconds,hasPreview:Number(url.pathname.split('/')[2]) > 1,beats:[],bpm:0};
       value.masks=sharedMasks.get(value.videoId+'_'+value.rangeSeconds) || [];
       library.set(value.cacheId,value);
     } else if(url.pathname.startsWith('/library/')) {
       previewPaths.push(url.pathname);
-      await route.fulfill({body:url.pathname.includes('_bs-roformer')?bsData:data,contentType:'audio/wav',headers:{'Access-Control-Allow-Origin':site}});return;
+      await route.fulfill({body:url.pathname.includes('_residual')?bsData:url.pathname.includes('_bs-roformer')?bsData:data,contentType:'audio/wav',headers:{'Access-Control-Allow-Origin':site}});return;
     } else if(url.pathname==='/jobs/'+String(1).padStart(32,'0') && firstPoll++===0) value={stage:'separating',progress:100,ready:false,message:'分離中'};
+    else if(requests[Number(url.pathname.split('/')[2])-1]?.separationMethod==='residual' && residualPoll++<2) value={stage:residualPoll===1?'accompaniment_separating':'subtracting',progress:residualPoll===1?25:null,ready:false,separationMethod:'residual',message:residualPoll===1?'第二輪分離':'原始混音减去第二輪伴奏'};
     else value={stage:'ready',ready:true,message:'ready'};
     await route.fulfill({json:value,headers:{'Access-Control-Allow-Origin':site}});
   });
   await page.goto(site+'/');
+  assert.equal(await page.locator('#separation-method').inputValue(),'single');
   assert.equal(await page.locator('#vocal-mode').inputValue(),'all');
   assert.equal(await page.locator('#separation-model').inputValue(),'demucs');
   assert.equal(await page.locator('#pitch-method').inputValue(),'yin');
@@ -259,6 +261,43 @@ try {
   await page.locator('#prepare-song').click();
   await page.waitForFunction(()=>document.querySelector('#prepare-status').textContent.includes('本機工具需要更新才能使用 BS-RoFormer'));
   assert.equal(requests.length,11);
+  supportModels=true;supportPitch=true;
+  await page.locator('[data-song-id="M7lc1UVf-VE_30_v1"]').click();
+  await page.waitForFunction(()=>document.querySelector('#prepare-status').textContent.startsWith('已就緒'));
+  assert.equal(await page.locator('#separation-method').inputValue(),'single');
+  await page.locator('#preview-vocals').click();
+  await page.waitForFunction(()=>!document.querySelector('#stem-audio').paused);
+  await page.locator('#separation-method').selectOption('residual');
+  assert.ok(await page.locator('#preview-vocals').isDisabled());
+  assert.equal(await page.locator('#stem-audio').getAttribute('src'),null);
+  await page.locator('#prepare-song').click();
+  await page.waitForFunction(()=>document.querySelector('#prepare-progress-label').textContent.includes('第二輪伴奏'));
+  assert.ok(await page.locator('#separation-method').isDisabled());
+  assert.ok(await page.locator('#residual-step').isVisible());
+  await page.waitForFunction(()=>document.querySelector('#subtract-step').classList.contains('active'));
+  assert.equal(await page.locator('#prepare-progress').getAttribute('value'),null);
+  await page.waitForFunction(()=>!document.querySelector('#preview-vocals').disabled);
+  assert.equal(requests.at(-1).separationMethod,'residual');
+  assert.match(await page.locator('#preview-source').textContent(),/伴奏二次分離＋反向相減/);
+  assert.equal(await page.locator('#mask-list li').count(),1);
+  await page.locator('#preview-vocals').click();
+  await page.waitForFunction(()=>!document.querySelector('#stem-audio').paused);
+  assert.equal(await playingHash(),audioHash(bsData));
+  assert.match(previewPaths.at(-1),/_residual_v1/);
+  await page.locator('#pitch-method').selectOption('rmvpe');await page.locator('#prepare-song').click();
+  await page.waitForFunction(()=>!document.querySelector('#preview-vocals').disabled);
+  assert.equal(requests.at(-1).separationMethod,'residual');assert.equal(requests.at(-1).pitchMethod,'rmvpe');
+  assert.equal(await page.locator('#mask-list li').count(),1);
+  await page.locator('[data-song-id="M7lc1UVf-VE_30_v1"]').click();
+  await page.waitForFunction(()=>!document.querySelector('#preview-vocals').disabled);
+  assert.equal(await page.locator('#separation-method').inputValue(),'single');
+  await page.locator('#preview-vocals').click();
+  await page.waitForFunction(()=>!document.querySelector('#stem-audio').paused);
+  assert.equal(await playingHash(),audioHash(data));
+  supportResidual=false;const beforeResidual=requests.length;
+  await page.locator('#separation-method').selectOption('residual');await page.locator('#prepare-song').click();
+  await page.waitForFunction(()=>document.querySelector('#prepare-status').textContent.includes('本機工具需要更新才能使用伴奏二次分離'));
+  assert.equal(requests.length,beforeResidual);
   // The manual must open a separate tab and every table-of-contents link must resolve.
   const opened=context.waitForEvent('page');
   await page.locator('a[href="manual.html"]').click();
