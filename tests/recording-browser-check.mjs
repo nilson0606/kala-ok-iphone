@@ -61,6 +61,8 @@ try {
     await route.fulfill({json:value,headers:{'Access-Control-Allow-Origin':site}});
   });
   await page.goto(site+'/');
+  assert.equal(await page.locator('#prepare-settings').getAttribute('open'),null);
+  await page.locator('#prepare-settings > summary').click();
   await page.locator('#pitch-method').selectOption('yin'); // This scenario uses a saved YIN fixture.
   await page.locator('#separation-method').selectOption('single');
   await page.locator('#separation-model').selectOption('demucs');await page.locator('#vocal-mode').selectOption('all');
@@ -71,7 +73,7 @@ try {
     window.recorderCreated=0;const NativeRecorder=window.MediaRecorder;window.MediaRecorder=class extends NativeRecorder{constructor(...args){super(...args);window.recorderCreated++;}};
   });
   const records=()=>page.evaluate(()=>recordStore.list());
-  async function waitRecords(count){await page.waitForFunction(async n=>(await recordStore.list()).filter(x=>x.complete).length===n,count);}
+  async function waitRecords(count){const end=Date.now()+20000;while(Date.now()<end){if((await records()).filter(x=>x.complete).length===count)return;await delay(50);}assert.fail('Recording did not finish saving');}
   async function start(){await page.locator('#sing-start').click();await page.waitForFunction(()=>document.querySelector('#recording-status').textContent.includes('● 錄音中'));}
   async function delay(ms){await page.waitForTimeout(ms);}
   async function spectrum(id,offset=.35,track='mix'){return page.evaluate(async ({id,offset,track})=>{
@@ -84,6 +86,7 @@ try {
   await page.locator('#url').fill('https://www.youtube.com/watch?v=M7lc1UVf-VE');await page.locator('#clip-seconds').selectOption('30');await page.locator('#prepare-song').click();
   await page.waitForFunction(()=>document.querySelector('#prepare-status').textContent.startsWith('已就緒'));
   assert.equal(await page.locator('#recording-mode').inputValue(),'voice');
+  assert.equal(await page.locator('#recording-delay').inputValue(),'150');
   assert.equal(await page.locator('#recording-manual').isChecked(),false);
   assert.ok(await page.locator('#recording-voice-level').isDisabled());
   // Testing the microphone alone must not store audio.
@@ -97,6 +100,7 @@ try {
   assert.ok(voiceAudio.voice>.05,JSON.stringify(voiceAudio));assert.ok(voiceAudio.backing<.01,JSON.stringify(voiceAudio));assert.equal(backingRequests,0);
   await page.locator('#finish-song').click();await page.waitForFunction(()=>document.querySelector('#score-status').textContent.includes('已結算'));
   assert.equal((await records()).length,1,'manual scoring after stopping must not duplicate recording');
+  assert.equal(voice.appliedDelayMs,150,await page.locator('#recording-status').textContent());assert.equal(voice.post.offsetMs,150);assert.equal(voice.mime,'audio/wav');assert.ok(voice.rawMime.startsWith('audio/webm'));
   await page.locator('#recording-mode').selectOption('mix');
   await page.locator('#recording-manual').check();
   await page.locator('#recording-voice-level').fill('60');await page.locator('#recording-backing-level').fill('80');
@@ -216,7 +220,7 @@ try {
   await page.locator('#recording-list').getByRole('button',{name:'試聽',exact:true}).first().click();
   await page.waitForFunction(()=>document.querySelector('#recording-audio').currentTime>.1);
   const downloaded=page.waitForEvent('download');await page.locator('#recording-list').getByRole('button',{name:'下載',exact:true}).first().click();
-  assert.ok((await downloaded).suggestedFilename().endsWith('.webm'));
+  assert.ok((await downloaded).suggestedFilename().endsWith('.wav'));
   // Reload preserves all recordings; delete only removes the selected recording.
   await page.locator('#recording-mode').selectOption('off');
   await page.reload();assert.equal(await page.locator('#recording-mode').inputValue(),'off');assert.ok(await page.locator('#recording-manual').isChecked());assert.equal(await page.locator('#recording-voice-level').inputValue(),'60');assert.equal(await page.locator('#recording-backing-level').inputValue(),'80');await page.locator('#recordings-panel summary').click();await page.waitForFunction(()=>document.querySelectorAll('#recording-list li button').length===16);
@@ -239,12 +243,12 @@ try {
     for(let i=Math.floor(.4*rate);i<Math.floor(.5*rate);i++)samples[i]=.2*Math.sin(2*Math.PI*440*i/rate);
     const meta={seconds:1,mode:'voice',balance:{manual:true,voice:100,backing:0},post:{samples:[],segments:[{offset:0,songTime:0,duration:1}]}};
     const result=[];
-    for(const delay of [0,100,-100]){const audio=await remixRecording(raw,[],meta,delay);result.push({delay,onset:audio.getChannelData(0).findIndex(x=>Math.abs(x)>.01)/rate,duration:audio.duration});}
+    for(const delay of [0,100,-100,150]){const audio=await remixRecording(raw,[],meta,delay);result.push({delay,onset:audio.getChannelData(0).findIndex(x=>Math.abs(x)>.01)/rate,duration:audio.duration});}
     await context.close();return result;
   });
   assert.ok(Math.abs(shifts[0].onset-shifts[1].onset-.1)<.002,JSON.stringify(shifts));
   assert.ok(Math.abs(shifts[2].onset-shifts[0].onset-.1)<.002,JSON.stringify(shifts));
-  assert.ok(shifts[2].duration>=1.1);
+  assert.ok(shifts[2].duration>=1.1);assert.ok(Math.abs(shifts[0].onset-shifts[3].onset-.15)<.002,JSON.stringify(shifts));
   await page.setViewportSize({width:1280,height:900});await page.locator('#recording-post').screenshot({path:'test-results/recording-post.png'});
   assert.deepEqual(errors,[]);
   console.log(JSON.stringify({shifts,voiceAudio,mixedAudio,harmonyAudio,harmonyAfterSeek,harmonyRequests,balanceStatus,peak,manualAutoRatio:true,defaultAuto:true,incrementalSave:true,pauseResume:true,seekBeyondBacking:true,quotaRecovery:true,emptyRecordingAvoided:true,stopRewind:true,automaticFinish:true,restartSeparate:true,off:true,selectiveAndAllScoreDeletion:true,persistence:true,download:true,deleteOne:true,errors}));

@@ -18,14 +18,14 @@ try{
   await page.route(site+'/archive-fixture',r=>r.fulfill({contentType:'text/html',body:'<title>Archive fixture</title>'}));
   await page.route('http://127.0.0.1:4174/**',async route=>{
    const req=route.request(),url=new URL(req.url());if(offline){await route.abort();return;}
-   if(url.pathname==='/session'){await route.fulfill({json:{token:'test',features:['recording-library']}});return;}
+   if(url.pathname==='/session'){await route.fulfill({json:{token:'test',features:['recording-library','recording-raw-mime']}});return;}
    const response=await fetch(api+url.pathname+url.search,{method:req.method(),body:['GET','HEAD'].includes(req.method())?undefined:req.postDataBuffer()});
    await route.fulfill({status:response.status,body:Buffer.from(await response.arrayBuffer()),contentType:response.headers.get('content-type')||'application/json'});
   });
   await page.goto(site+'/archive-fixture');await page.evaluate(async()=>{const {RecordingStore,BrowserRecordingStore}=await import('/recording-store.mjs');window.localStore=new BrowserRecordingStore();window.diskStore=new RecordingStore();});return{context,page};
  }
  const {page}=await client();
- const meta=await page.evaluate(async()=>{const row={id:crypto.randomUUID(),title:'Legacy song',mime:'audio/webm',created:Date.now(),seconds:2,bytes:6,rawBytes:5,complete:true,post:{reference:{pitchMethod:'yin'},samples:[{time:1,hz:440}]}};await localStore.save(row,new Blob(['mix123']),0);await localStore.save(row,new Blob(['voice']),0,'voice');return row;});
+ const meta=await page.evaluate(async()=>{const row={id:crypto.randomUUID(),title:'Corrected song',mime:'audio/wav',rawMime:'audio/webm',appliedDelayMs:150,created:Date.now(),seconds:2,bytes:6,rawBytes:5,complete:true,post:{reference:{pitchMethod:'yin'},samples:[{time:1,hz:440}]}};await localStore.save(row,new Blob(['mix123']),0);await localStore.save(row,new Blob(['voice']),0,'voice');return row;});
  offline=true;assert.equal((await page.evaluate(()=>diskStore.list())).length,1);assert.equal((await page.evaluate(()=>localStore.list())).length,1,'offline migration must preserve original');offline=false;
  const migrated=await page.evaluate(()=>diskStore.list());assert.equal(migrated[0]._archiveRoot,archive.root);assert.equal((await page.evaluate(()=>localStore.list())).length,0);
  assert.equal(await readFile((await archive.audio(meta.id,'voice')).file,'utf8'),'voice');

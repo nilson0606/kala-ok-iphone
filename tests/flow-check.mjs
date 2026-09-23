@@ -54,6 +54,8 @@ try {
     await route.fulfill({ json: value, headers: { 'Access-Control-Allow-Origin': 'http://localhost:4173' } });
   });
   await page.goto('http://localhost:4173/');
+  assert.equal(await page.locator('#prepare-settings').getAttribute('open'),null);
+  await page.locator('#prepare-settings > summary').click();
   await page.locator('#pitch-method').selectOption('yin'); // This scenario uses a saved YIN fixture.
   await page.locator('#separation-method').selectOption('single');
   await page.locator('#separation-model').selectOption('demucs');await page.locator('#vocal-mode').selectOption('all');

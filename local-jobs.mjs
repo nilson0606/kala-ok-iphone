@@ -143,7 +143,7 @@ async function start(videoId, seconds, preview = false, force = false, vocalMode
   return job;
 }
 export async function handleLocalJobs(req, res) {
-  if (req.url === '/session' && req.method === 'GET') { json(res, 200, { token, features: ['library', 'stem-preview', 'library-location', 'separation-progress', 'rebuild-song', 'lead-vocals', 'separation-models', 'score-masks', 'pitch-methods', 'residual-separation', 'mel-roformer', 'recording-mp3', 'recording-library'] }); return true; }
+  if (req.url === '/session' && req.method === 'GET') { json(res, 200, { token, features: ['library', 'stem-preview', 'library-location', 'separation-progress', 'rebuild-song', 'lead-vocals', 'separation-models', 'score-masks', 'pitch-methods', 'residual-separation', 'mel-roformer', 'recording-mp3', 'recording-library', 'recording-raw-mime'] }); return true; }
   if (!req.url.startsWith('/jobs') && !req.url.startsWith('/library') && req.url !== '/shutdown' && !req.url.startsWith('/recordings')) return false;
   if (req.headers['x-karaoke-token'] !== token) { json(res, 403, { error: 'Session token required' }); return true; }
   if (req.url === '/recordings/mp3') { if(req.method==='POST')await exportRecordingMp3(req,res);else json(res,405,{error:'Unsupported method'});return true; }

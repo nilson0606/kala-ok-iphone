@@ -1,3 +1,4 @@
+import {remixRecording,wavBlob,delaySeconds} from './recording-process.mjs';
 import { createRecordingPost } from './recording-post.mjs';
 import { createRecordingMix, mixSettings } from './recording-mix.mjs';
 import { RecordingStore } from './recording-store.mjs';
@@ -16,6 +17,7 @@ export function createSingerRecorder(options) {
   function controls() {
     const mode=$('recording-mode').value, manual=$('recording-manual').checked;
     $('recording-mode').disabled = !!active;
+    $('recording-delay').disabled=!!active||mode==='off';
     $('recording-manual').disabled = !!active || mode==='off';
     $('recording-voice-level').disabled = !!active || mode==='off' || !manual;
     $('recording-backing-level').disabled = !!active || mode!=='mix' || !manual;
@@ -34,7 +36,7 @@ export function createSingerRecorder(options) {
     for (const row of rows) {
       const li = document.createElement('li'), label = document.createElement('strong'), info = document.createElement('small'), buttons = document.createElement('div');
       label.textContent = row.title;
-      info.textContent = `${new Date(row.created).toLocaleString()} · ${row.mode === 'mix' ? (row.stems?.includes('backing') ? '歌唱者＋配樂／和音' : '歌唱者＋配樂（無獨立和音）') : '歌唱者'}${row.balance ? (row.balance.manual ? ' · 手動＋自動' : ' · 自動平衡') : ''} · ${row._archiveRoot?'歌曲庫錄音目錄':'瀏覽器待搬存'} · ${Math.round(row.seconds)} 秒${row.complete ? '' : ' · 未正常結束，保留已儲存片段'}`;
+      info.textContent = `${new Date(row.created).toLocaleString()} · ${row.mode === 'mix' ? (row.stems?.includes('backing') ? '歌唱者＋配樂／和音' : '歌唱者＋配樂（無獨立和音）') : '歌唱者'}${row.balance ? (row.balance.manual ? ' · 手動＋自動' : ' · 自動平衡') : ''} · ${row._archiveRoot?'歌曲庫錄音目錄':'瀏覽器待搬存'} · ${Math.round(row.seconds)} 秒${Number.isFinite(row.appliedDelayMs)?' · 歌聲校正 '+row.appliedDelayMs+' ms':''}${row.complete ? '' : ' · 未正常結束，保留已儲存片段'}`;
       buttons.className = 'button-row';
       for (const [text, action] of [
         ['試聽', async () => { await stop(); options.pausePlayer(); clearPreview(); previewURL = URL.createObjectURL(await store.blob(row)); $('recording-audio').src = previewURL; $('recording-audio').hidden = false; await $('recording-audio').play(); }],
@@ -76,6 +78,7 @@ export function createSingerRecorder(options) {
     await stop(); clearPreview();
     const mode = $('recording-mode').value;
     if (mode === 'off') { status('本輪不保存錄音。'); return; }
+    const recordingDelayMs=Number($('recording-delay').value);delaySeconds(recordingDelayMs);
     const request = ++operation;
     if (!window.MediaRecorder) throw new Error('瀏覽器不支援錄音，請使用桌機 Chrome／Edge，或選不保存錄音。');
     status(mode === 'mix' ? '正在準備錄音配樂／和音…' : '正在準備演唱錄音…');
@@ -103,7 +106,7 @@ export function createSingerRecorder(options) {
     let recorder, rawRecorder;
     try { recorder = new MediaRecorder(destination.stream, mime ? {mimeType:mime} : {}); rawRecorder = new MediaRecorder(stream, mime ? {mimeType:mime} : {}); }
     catch (error) { mix.disconnect(); destination.stream.getTracks().forEach(t=>t.stop()); throw error; }
-    const meta = { id: crypto.randomUUID(), title: reference.title, videoId: reference.videoId, mode, mime: recorder.mimeType, created: Date.now(), seconds: 0, bytes: 0, complete: false, balance: mix.settings, stems, rawBytes:0, post:{version:1, reference:structuredClone(reference), scoring, offsetMs:Number($('offset').value), segments:[], samples:[]} };
+    const meta = { id: crypto.randomUUID(), title: reference.title, videoId: reference.videoId, mode, mime: recorder.mimeType, rawMime:rawRecorder.mimeType, appliedDelayMs:0, recordingDelayMs, created: Date.now(), seconds: 0, bytes: 0, complete: false, balance: mix.settings, stems, rawBytes:0, post:{version:1, reference:structuredClone(reference), scoring, offsetMs:recordingDelayMs, liveOffsetMs:Number($('offset').value), segments:[], samples:[]} };
     const a = { recorder, rawRecorder, rawCount:0, segment:null, context, mic, mix, destination, buffers, meta, chunks: [], queue: Promise.resolve(), count: 0, elapsed: 0, since: null, backing: [], error: null };
     active = a; controls();
     rawRecorder.ondataavailable = event => {
@@ -162,13 +165,25 @@ export function createSingerRecorder(options) {
       await ended; await a.queue;
       a.mix.disconnect(); a.destination.stream.getTracks().forEach(t=>t.stop());
       if (!wasStarted || !a.meta.bytes) { status('未開始播放，沒有保存空白錄音。'); return; }
-      a.meta.seconds = a.elapsed; a.meta.complete = true;
+      a.meta.seconds = a.elapsed;
       try {
         if (a.error) throw a.error;
-        await store.save(a.meta); status('演唱錄音已保存，可在下方試聽或下載。');
+        let correctionError='';
+        if(a.meta.recordingDelayMs!==0){
+          status(`正在將錄音歌聲校正 ${a.meta.recordingDelayMs} ms 並保存…`);
+          const decoder=new AudioContext();
+          try{
+            const raw=await decoder.decodeAudioData(await(await store.blob(a.meta,'voice')).arrayBuffer());
+            const audio=await remixRecording(raw,a.buffers,a.meta,a.meta.recordingDelayMs),blob=wavBlob(audio);
+            const corrected={...a.meta,mime:'audio/wav',bytes:blob.size,seconds:audio.duration,appliedDelayMs:a.meta.recordingDelayMs};
+            await store.replaceMix(corrected,blob);Object.assign(a.meta,corrected);
+          }catch(error){correctionError=error.message;}finally{await decoder.close().catch(()=>{});}
+        }
+        a.meta.complete=true;await store.save(a.meta);
+        status(correctionError?'延時校正未完成，已保存未校正的原錄音，可到後處理重試：'+correctionError:`演唱錄音已保存 · 歌聲校正 ${a.meta.appliedDelayMs} ms，可在下方試聽或下載。`);
       } catch (error) {
         const panel = $('recording-rescue'); panel.hidden = false;
-        const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob(a.chunks,{type:a.meta.mime})); link.download = '演唱錄音.'+(a.meta.mime.includes('mp4')?'m4a':'webm');
+        const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob(a.chunks,{type:a.recorder.mimeType})); link.download = '演唱錄音.'+(a.recorder.mimeType.includes('mp4')?'m4a':'webm');
         link.textContent = `下載未保存錄音：${a.meta.title}（${new Date(a.meta.created).toLocaleTimeString()}）`; panel.append(link);
         status('錄音未完整保存，請先按「下載未保存錄音」備份：'+error.message);
       }

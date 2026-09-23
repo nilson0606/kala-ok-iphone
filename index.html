@@ -65,6 +65,7 @@
     </section>
     <section id="prepare-section" tabindex="-1" class="card prepare-card">
       <div class="section-top"><h2>聲曲分離與音高旋律擷取</h2><span class="subtle">本機分析與歌曲庫</span></div>
+      <details id="prepare-settings"><summary>分離與音高設定（點擊展開／收合）</summary>
       <label for="clip-seconds">分析範圍</label><select id="clip-seconds"><option value="0">完整歌曲（最長 15 分鐘）</option><option value="15">先試前 15 秒</option><option value="30">先試前 30 秒</option><option value="60">先試前 60 秒</option></select>
       <label for="pitch-method">基準音高擷取</label><select id="pitch-method"><option value="rmvpe" selected>RMVPE（歌聲音高模型，預設）</option><option value="yin">YIN（原有方式）</option></select><p class="help">RMVPE 首次下載約 181 MB，所有歌曲共用。只改變評分基準，不會讓試聽音軌更乾淨。兩種音高版本分開保存；有保存相同模型／流程／模式的分離音軌時，按「準備歌曲基準」即可重用，不必重跑分離。手工遮罩依原始影片及分析範圍共用。</p>
       <label for="separation-model">聲曲分離模型</label><select id="separation-model"><option value="demucs">Demucs／htdemucs（原有模型）</option><option value="bs-roformer">BS-RoFormer／Viperx 1297（比較試聽）</option><option value="mel-roformer" selected>Mel-Band RoFormer／Kim 人聲（預設）</option></select><p class="help">三種模型皆分離人聲與伴奏，可搭配下方主唱／和音模式。Mel-Band RoFormer 使用 Kim 人聲模型，與主唱／和音模型不同；首次需下載約 913 MB。不同模型各自保存、共用遮罩，舊歌不需重做。完成後可從歌單切換試聽比較，效果依歌曲而異。</p>
@@ -72,6 +73,7 @@
       <label for="vocal-mode">聲曲分離模式</label><select id="vocal-mode"><option value="all">人聲／伴奏分離（原有方式）</option><option value="lead" selected>主唱／和音分離（預設）</option></select><p class="help">主唱模式會先分離人聲，再嘗試分出主唱與和音，只用主唱建立音高基準。第一次需下載額外模型；效果請先試聽確認。兩種模式分開保存。</p>
       <label class="check-option"><input id="keep-preview" type="checkbox" checked> 保留分離音軌，供本機試聽（選用）</label>
       <p class="help">歌曲基準會自動保存在這台電腦；同一影片、分析範圍、分離模型、處理流程、音高方式與模式可直接重用。預設保留人聲／伴奏音檔供試聽；取消勾選則只存評分基準。</p>
+      </details>
       <div class="button-row prepare-buttons"><button id="prepare-song" type="button">準備歌曲基準</button><button id="rebuild-song" class="secondary" type="button" disabled>重新分離並覆蓋</button><button id="cancel-song" class="secondary" type="button" disabled>取消／卸載</button></div>
       <p class="help">分離百分比只代表目前階段。達到 100% 後仍需完成音軌、建立基準並保存；顯示「已就緒」且試聽按鈕亮起，才算全部完成。</p>
       <p class="footnote">「重新分離並覆蓋」會重新處理這首歌，成功後只替換所選模型、流程、音高方式、模式與範圍的基準與音軌；失敗的新結果不保存。</p>
@@ -127,6 +129,8 @@
     <div class="score-grid"><div class="total"><strong id="total-score">—</strong><span>總分 / 100</span></div><div><strong id="pitch-score">—</strong><span>音準 · 60%</span></div><div><strong id="rhythm-score">—</strong><span>進拍 · 25%</span></div><div><strong id="coverage-score">—</strong><span>完整度 · 15%</span></div></div>
     <label for="recording-mode">演唱錄音儲存</label><select id="recording-mode"><option value="voice">歌唱者（預設）</option><option value="mix">歌唱者＋配樂／和音</option><option value="off">不保存錄音</option></select>
     <p class="help">按「從頭開始唱」，影片開始播放時同步錄音；停止收音、結束並結算或影片播完時保存。暫停／緩衝時暫停錄音。依已載入版本自動選軌：兩軌版本加入伴奏；四軌版本加入伴奏＋和音，不加入原唱主唱或全部人聲。超過音軌長度後只錄歌唱者。請戴耳機，避免原唱從喇叭漏入麥克風。</p>
+    <label for="recording-delay">錄音歌聲延時校正（毫秒）</label><input id="recording-delay" type="number" min="-2000" max="2000" step="1" value="150">
+    <p class="help">預設＋150 ms：停止錄音後，成品中的歌聲往前移 150 ms，配樂與和音不移動。填入總校正量，不會累加。原始歌聲保留供後處理；即時評分仍使用上方時間補償設定。</p>
     <fieldset id="recording-balance"><legend>錄音音量平衡</legend>
       <label class="check-option"><input id="recording-manual" type="checkbox">手動設定比例＋自動微調</label>
       <p id="recording-balance-help" class="help">未勾選：自動平衡歌唱者與配樂／和音。勾選後使用你設定的音量，系統只做小幅修正。</p>
@@ -148,7 +152,7 @@
     <label for="post-reference-source">重新評分使用的歌曲基準</label><select id="post-reference-source"><option value="original">錄音當時的基準（預設）</option><option value="current">目前已載入的歌曲基準（比較 RMVPE／其他版本）</option></select>
     <p id="post-reference-info" class="help" role="status"></p>
     <label for="post-delay">歌聲延時校正（毫秒）</label><input id="post-delay" type="number" min="-2000" max="2000" step="10" value="0">
-    <p class="help">正值：歌聲晚到，將歌聲提前；負值：歌聲太早，將歌聲延後。填入總校正量，不是累加；配樂與和音不移動。初始值沿用這次演唱開始時的時間補償。</p>
+    <p class="help">正值：歌聲晚到，將歌聲提前；負值：歌聲太早，將歌聲延後。填入總校正量，不是累加；配樂與和音不移動。初始值沿用本輪錄音校正值；舊錄音沿用當時保存的時間補償。</p>
     <div class="button-row"><button id="post-rescore" type="button" disabled>1. 調延時重新評分</button><button id="post-remix" type="button" disabled>2. 調延時重新合成</button><button id="post-mp3" type="button" class="secondary" disabled>3. 轉 MP3 並下載</button></div>
     <p class="help"><button id="post-diagnostic" type="button" class="secondary" disabled>下載這筆評分診斷</button> 包含這筆原始錄音、乾淨歌聲、時間位置與評分基準；只下載到本機，供檢查對齊問題。</p>
     <p id="post-score" class="score-title" role="status"></p><p id="post-status" class="status" role="status">新版錄音會保存乾淨歌聲與評分資料，後處理只在本機進行。</p>

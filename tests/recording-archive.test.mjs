@@ -11,10 +11,10 @@ function pack(meta,mix=Buffer.from('mix123'),voice=Buffer.from('voice')){const j
 async function cleanup(root){if(path.dirname(root)===tmpdir()&&path.basename(root).startsWith('karaoke-archive-'))await rm(root,{recursive:true,force:true,maxRetries:5});}
 test('archive round trip, score update, MP3, idempotent migration and deletion preserve song files',async()=>{
  const root=await mkdtemp(path.join(tmpdir(),'karaoke-archive-'));try{
- const archive=new RecordingArchive(root),meta=fixture();await writeFile(path.join(root,'song-reference.json'),'keep');
+ const archive=new RecordingArchive(root),meta={...fixture(),mime:'audio/wav',rawMime:'audio/webm;codecs=opus',appliedDelayMs:150};await writeFile(path.join(root,'song-reference.json'),'keep');
  const result=await archive.import(meta.id,pack(meta));assert.equal(result._archiveRoot,path.join(root,'錄音'));
  assert.deepEqual((await archive.list()).records[0].post,meta.post);
- assert.equal(await readFile((await archive.audio(meta.id,'voice')).file,'utf8'),'voice');
+ assert.equal(await readFile((await archive.audio(meta.id,'voice')).file,'utf8'),'voice');assert.ok((await archive.audio(meta.id,'voice')).file.endsWith('voice.webm'));assert.ok((await archive.audio(meta.id,'mix')).file.endsWith('mix.wav'));assert.equal((await archive.audio(meta.id,'voice')).mime,meta.rawMime);
  const changed={...result,postResult:{rhythm:50,delayMs:175}};await archive.update(meta.id,changed);
  assert.equal((await archive.import(meta.id,pack(meta))).postResult.rhythm,50,'retry cannot replace newer metadata');
  await archive.mp3(meta.id,Readable.from([Buffer.from('ID3test')]));assert.equal((await archive.audio(meta.id,'mp3')).size,7);

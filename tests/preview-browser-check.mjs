@@ -83,6 +83,8 @@ try {
     await route.fulfill({json:value,headers:{'Access-Control-Allow-Origin':site}});
   });
   await page.goto(site+'/');
+  assert.equal(await page.locator('#prepare-settings').getAttribute('open'),null);
+  await page.locator('#prepare-settings > summary').click();
   assert.equal(await page.locator('#separation-method').inputValue(),'residual');
   assert.equal(await page.locator('#vocal-mode').inputValue(),'lead');
   assert.equal(await page.locator('#separation-model').inputValue(),'mel-roformer');

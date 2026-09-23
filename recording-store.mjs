@@ -29,6 +29,12 @@ export class BrowserRecordingStore {
       if (chunk) tx.objectStore('chunks').put({ id: track === 'voice' ? meta.id + ':voice' : meta.id, index, blob: chunk });
     });
   }
+  replaceMix(meta,blob) {
+    return this.transaction('readwrite',tx=>{
+      tx.objectStore('chunks').delete(IDBKeyRange.bound([meta.id,0],[meta.id,Number.MAX_SAFE_INTEGER]));
+      tx.objectStore('chunks').put({id:meta.id,index:0,blob});tx.objectStore('takes').put(meta);
+    });
+  }
   list() {
     return this.transaction('readonly', (tx, done) => {
       tx.objectStore('takes').getAll().onsuccess = event => done(event.target.result.filter(x => x.bytes > 0).sort((a,b) => b.created - a.created));
@@ -37,7 +43,7 @@ export class BrowserRecordingStore {
   blob(meta, track = 'mix') {
     const id = track === 'voice' ? meta.id + ':voice' : meta.id;
     return this.transaction('readonly', (tx, done) => {
-      tx.objectStore('chunks').getAll(IDBKeyRange.bound([id,0],[id,Number.MAX_SAFE_INTEGER])).onsuccess = event => done(new Blob(event.target.result.map(x => x.blob), { type: meta.mime }));
+      tx.objectStore('chunks').getAll(IDBKeyRange.bound([id,0],[id,Number.MAX_SAFE_INTEGER])).onsuccess = event => done(new Blob(event.target.result.map(x => x.blob), { type: track==='voice'?(meta.rawMime||meta.mime):meta.mime }));
     });
   }
   delete(id) {
@@ -63,11 +69,13 @@ export class RecordingStore {
     const r=await fetch(url,{method,headers:{'X-Karaoke-Token':this.session.token,...(body?{'Content-Type':'application/octet-stream'}:{})},body,signal:AbortSignal.timeout(body?180000:30000)});
     if(!r.ok){if(r.status===403)this.session=null;const value=await r.json().catch(()=>({}));throw new Error(value.error||'錄音資料夾操作失敗。');}return r;
   }
+  replaceMix(meta,blob){return this.serial(()=>this.browser.replaceMix(meta,blob));}
   async info(){return (await this.request('/recordings')).json();}
   async move(meta,info){
     if(info.deleted.includes(meta.id)){await this.browser.delete(meta.id);return null;}
     let stored=info.records.find(r=>r.id===meta.id);
     if(!stored){
+      if(meta.rawBytes&&meta.rawMime&&meta.rawMime!==meta.mime&&!this.session?.features?.includes('recording-raw-mime'))throw new Error('請重新啟動新版本機工具，才能保存校正成品與原始歌聲。');
       const mix=await this.browser.blob(meta),voice=meta.rawBytes?await this.browser.blob(meta,'voice'):new Blob();
       if(mix.size!==meta.bytes||voice.size!==(meta.rawBytes||0))throw new Error('瀏覽器原始音檔不完整，未搬存也未刪除。');
       const bytes=new TextEncoder().encode(JSON.stringify(meta)),prefix=new Uint8Array(4);new DataView(prefix.buffer).setUint32(0,bytes.length,true);

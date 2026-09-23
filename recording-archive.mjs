@@ -9,7 +9,7 @@ const MAX_AUDIO=384*1024*1024,MAX_META=16*1024*1024;
 const ext=mime=>mime?.startsWith('audio/webm')?'webm':mime?.startsWith('audio/mp4')?'m4a':mime==='audio/wav'?'wav':null;
 const clean=meta=>{const {_archiveRoot,...value}=meta;return value;};
 function validate(meta,id){
- if(!meta||meta.id!==id||!ID.test(id)||typeof meta.title!=='string'||meta.title.length>500||!ext(meta.mime)||!Number.isFinite(meta.created)||!Number.isFinite(meta.seconds)||meta.seconds<0||meta.seconds>3601||!Number.isSafeInteger(meta.bytes)||meta.bytes<1||meta.bytes>MAX_AUDIO||!Number.isSafeInteger(meta.rawBytes??0)||(meta.rawBytes??0)<0||(meta.rawBytes??0)>MAX_AUDIO)throw new Error('錄音資料或大小無效。');
+ if(!meta||meta.id!==id||!ID.test(id)||typeof meta.title!=='string'||meta.title.length>500||!ext(meta.mime)||(meta.rawMime&&!ext(meta.rawMime))||!Number.isFinite(meta.created)||!Number.isFinite(meta.seconds)||meta.seconds<0||meta.seconds>3601||!Number.isSafeInteger(meta.bytes)||meta.bytes<1||meta.bytes>MAX_AUDIO||!Number.isSafeInteger(meta.rawBytes??0)||(meta.rawBytes??0)<0||(meta.rawBytes??0)>MAX_AUDIO)throw new Error('錄音資料或大小無效。');
  return clean(meta);
 }
 async function regular(file){const s=await lstat(file);if(!s.isFile()||s.isSymbolicLink())throw new Error('錄音檔案位置無效。');return s;}
@@ -26,7 +26,7 @@ export class RecordingArchive {
   if(value.format!=='karaoke-recording-v1')throw new Error('這個目錄不是本工具的錄音。');
   const meta=validate(value.recording,id),suffix=ext(meta.mime);
   if((await regular(path.join(dir,'mix.'+suffix))).size!==meta.bytes)throw new Error('錄音成品不完整。');
-  if(meta.rawBytes&&(await regular(path.join(dir,'voice.'+suffix))).size!==meta.rawBytes)throw new Error('原始歌聲不完整。');
+  if(meta.rawBytes&&(await regular(path.join(dir,'voice.'+ext(meta.rawMime||meta.mime)))).size!==meta.rawBytes)throw new Error('原始歌聲不完整。');
   return {...meta,_archiveRoot:this.root};
  }
  async list(){await this.ready();const records=[],deleted=new Set(await this.deleted());for(const d of await readdir(this.root,{withFileTypes:true})){if(d.isDirectory()&&ID.test(d.name)&&!deleted.has(d.name)){try{records.push(await this.get(d.name));}catch{/* Incomplete or foreign folders are never exposed or removed. */}}}return {path:this.root,records:records.sort((a,b)=>b.created-a.created),deleted:[...deleted]};}
@@ -40,13 +40,13 @@ export class RecordingArchive {
    const reader=await open(bundle,'r');let meta,offset;
    try{const prefix=Buffer.alloc(4);if((await reader.read(prefix,0,4,0)).bytesRead!==4)throw new Error('錄音封包不完整。');const n=prefix.readUInt32LE();if(n<2||n>MAX_META)throw new Error('錄音資料太大。');const bytes=Buffer.alloc(n);if((await reader.read(bytes,0,n,4)).bytesRead!==n)throw new Error('錄音資料不完整。');meta=validate(JSON.parse(bytes.toString('utf8')),id);offset=4+n;}finally{await reader.close();}
    if(size!==offset+meta.bytes+(meta.rawBytes||0))throw new Error('音檔長度不符，保留瀏覽器原檔供重試。');
-   for(const [name,length]of [['mix',meta.bytes],['voice',meta.rawBytes||0]]){if(length){await pipeline(createReadStream(bundle,{start:offset,end:offset+length-1}),createWriteStream(path.join(stage,name+'.'+ext(meta.mime)),{flags:'wx'}));offset+=length;}}
+   for(const [name,length]of [['mix',meta.bytes],['voice',meta.rawBytes||0]]){if(length){await pipeline(createReadStream(bundle,{start:offset,end:offset+length-1}),createWriteStream(path.join(stage,name+'.'+ext(name==='voice'?(meta.rawMime||meta.mime):meta.mime)),{flags:'wx'}));offset+=length;}}
    await writeFile(path.join(stage,'metadata.json'),JSON.stringify({format:'karaoke-recording-v1',recording:meta}));
    await rm(bundle);await rename(stage,target);return this.get(id);
   }finally{if(path.dirname(path.resolve(stage))===this.root&&path.basename(stage).startsWith('.incoming-'))await rm(stage,{recursive:true,force:true,maxRetries:3});}
  }
- async update(id,value){const prior=await this.get(id),meta=validate(value,id);if(meta.bytes!==prior.bytes||(meta.rawBytes||0)!==(prior.rawBytes||0)||meta.mime!==prior.mime)throw new Error('不能在更新成績時改寫音檔資訊。');await this.atomic(path.join(this.dir(id),'metadata.json'),JSON.stringify({format:'karaoke-recording-v1',recording:meta}));return this.get(id);}
- async audio(id,track){const meta=await this.get(id);if(!['mix','voice','mp3'].includes(track))throw new Error('無效音軌。');const file=path.join(this.dir(id),track==='mp3'?'export.mp3':track+'.'+ext(meta.mime));const size=(await regular(file)).size;return{file,size,mime:track==='mp3'?'audio/mpeg':meta.mime};}
+ async update(id,value){const prior=await this.get(id),meta=validate(value,id);if(meta.bytes!==prior.bytes||(meta.rawBytes||0)!==(prior.rawBytes||0)||meta.mime!==prior.mime||(meta.rawMime||meta.mime)!==(prior.rawMime||prior.mime))throw new Error('不能在更新成績時改寫音檔資訊。');await this.atomic(path.join(this.dir(id),'metadata.json'),JSON.stringify({format:'karaoke-recording-v1',recording:meta}));return this.get(id);}
+ async audio(id,track){const meta=await this.get(id);if(!['mix','voice','mp3'].includes(track))throw new Error('無效音軌。');const file=path.join(this.dir(id),track==='mp3'?'export.mp3':track+'.'+ext(track==='voice'?(meta.rawMime||meta.mime):meta.mime));const size=(await regular(file)).size;return{file,size,mime:track==='mp3'?'audio/mpeg':track==='voice'?(meta.rawMime||meta.mime):meta.mime};}
  async mp3(id,input){await this.get(id);const file=path.join(this.dir(id),'export.mp3'),temporary=file+'.'+randomUUID()+'.tmp';let length=0;const handle=await open(temporary,'wx');try{for await(const chunk of input){length+=chunk.length;if(length>MAX_AUDIO)throw new Error('MP3 太大。');await handle.writeFile(chunk);}if(!length)throw new Error('MP3 為空。');await handle.close();await rename(temporary,file);}finally{await handle.close().catch(()=>{});await rm(temporary,{force:true});}return {path:file};}
  async delete(id){
   await this.ready();this.dir(id);const deleted=await this.deleted();
