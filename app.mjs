@@ -97,8 +97,9 @@ $('probe').addEventListener('click', async () => {
 });
 function latency(x) { return Number.isFinite(x) ? `${Math.round(x * 1000)} ms（估計）` : '未提供，不能當作 0 ms'; }
 $('offset').addEventListener('input', () => { $('offset-value').textContent = `${$('offset').value} ms`; });
-async function stopMic(message = '收音已停止，聲音資料已釋放。', rewind = false) {
+async function stopMic(message = '收音已停止，麥克風已釋放；錄音結果請查看下方錄音狀態。', rewind = false) {
   generation++; clearInterval(micTimer); calibration?.cancel();
+  const recordingEnd = singing.stopRecording();
   const oldStream = stream, oldContext = context;
   stream = context = analyser = samples = null; history = [];
   oldStream?.getTracks().forEach(t => t.stop());
@@ -107,6 +108,7 @@ async function stopMic(message = '收音已停止，聲音資料已釋放。', r
   $('mic-badge').textContent = '麥克風未開啟'; $('mic-status').textContent = message;
   $('note').textContent = '—'; $('frequency').textContent = '等待收音'; $('cents').textContent = '單音音高 · 65–1000 Hz';
   $('level').value = 0; $('level-text').textContent = '— dBFS'; $('device').textContent = '收音已停止。'; singing.micStopped({ rewind, reason: message }); draw();
+  await recordingEnd;
   if (oldContext) await oldContext.close().catch(() => {});
 }
 function startMic() {
@@ -135,7 +137,7 @@ async function activateMic() {
     track.onmute = () => { $('mic-status').textContent = '收音暫時中斷，目前音高不可用。'; };
     track.onunmute = () => { $('mic-status').textContent = '收音已恢復。'; };
     context.onstatechange = () => { if (context?.state !== 'running') $('mic-status').textContent = '音訊處理暫停，請停止後重新開啟。'; };
-    $('mic-badge').textContent = '● 收音中'; $('mic-status').textContent = '持續唱「啊」試試。不播放人聲、不保存錄音。';
+    $('mic-badge').textContent = '● 收音中'; $('mic-status').textContent = '持續唱「啊」試試。單獨測試麥克風不保存；按「從頭開始唱」依錄音選項保存。';
     micTimer = setInterval(readMic, 65); singing.micStarted(); return true;
   } catch (err) {
     pendingStream?.getTracks().forEach(t => t.stop());
@@ -258,7 +260,7 @@ $('local-check').addEventListener('click', async () => {
   } finally { clearTimeout(timer); button.disabled = false; }
 });
 
-const singing = createKaraokeSession({ player: () => player, micReady: () => !!stream && context?.state === 'running', stopMic: () => stopMic(), startMic, stopBeats, loadVideo: () => loadVideo(), cancelCalibration: () => calibration?.cancel() });
+const singing = createKaraokeSession({ context: () => context, stream: () => stream, player: () => player, micReady: () => !!stream && context?.state === 'running', stopMic: () => stopMic(), startMic, stopBeats, loadVideo: () => loadVideo(), cancelCalibration: () => calibration?.cancel() });
 
 calibration = createCalibration({ context: () => context, micReady: () => !!stream && context?.state === 'running', beforeStart: () => singing.pauseForCalibration() });
 

@@ -66,3 +66,7 @@ header{gap:18px;flex-wrap:wrap}
 #preview-panel > summary{font-size:clamp(20px,2vw,24px);font-weight:750;line-height:1.5;color:var(--accent);padding-block:12px}
 
 .prepare-steps{flex-wrap:wrap}.prepare-steps li{min-width:72px}
+
+.score-history .check-option{margin:0;flex:1;min-width:0;color:var(--text)}.score-history .check-option span{overflow-wrap:anywhere}.score-history .check-option input{flex-shrink:0}.history-actions{flex-wrap:wrap}#recordings-panel summary{font-size:18px;color:var(--accent);font-weight:700}#recording-rescue{color:var(--accent);display:block;margin:12px 0}#recording-rescue[hidden]{display:none}
+
+#recording-rescue a{display:block;color:var(--accent);margin:8px 0;overflow-wrap:anywhere}

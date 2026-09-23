@@ -1,4 +1,5 @@
 import { youtubeId, noteOf } from './audio.mjs';
+import { createSingerRecorder } from './recording.mjs';
 import { createMaskEditor } from './mask-editor.mjs';
 import { ScoringTake, validateReference, savedResult, pitchDifference, scoringProfile, applyMasks, maskedCells } from './scoring.mjs';
 const $ = id => document.getElementById(id);
@@ -25,6 +26,7 @@ export function createKaraokeSession(options) {
   let phase = 'idle', loadedVideo = null, lastProgress = 0, rangeComplete = false;
   let libraryLocation = null, locationBusy = false;
   let previewUrl = null, previewRequest = null, previewSerial = 0, restartToken = 0;
+  const recording = createSingerRecorder({context: options.context, stream: options.stream, player: options.player, pausePlayer: () => { options.player()?.pauseVideo?.(); stopPreview(); }});
   const message = text => { $('score-status').textContent = text; };
   function updateMaskView() { displayReference = reference ? applyMasks(reference) : null; excluded = reference ? maskedCells(reference) : []; }
   const maskEditor = createMaskEditor({
@@ -91,11 +93,13 @@ export function createKaraokeSession(options) {
   }
   async function clear(text = '已取消／卸載本次工作；已保存的歌曲仍在本機歌曲庫。', finishing = false) {
     generation++; restartToken++; clearTimeout(timer); stopPreview();
+    const recordingEnd = recording.stop();
     const id = jobId; jobId = null; reference = null; updateMaskView(); maskEditor.render();
     options.player()?.pauseVideo?.(); $('prepare-progress-panel').hidden = true;
     take?.clear(); take = null; $('take-difficulty').textContent = '尚未開始演唱；每輪開始後固定難度。'; rangeComplete = false; phase = finishing ? 'finishing' : 'idle';
     beatReset(); $('live-feedback').textContent = '等待歌曲基準'; $('target-note').textContent = '—'; $('prepare-status').textContent = text;
     message('準備歌曲並開啟麥克風後，按播放就開始評分。'); controls();
+    await recordingEnd;
     if (!await removeJob(id)) $('prepare-status').textContent = text + ' 本機工具未回覆清除結果；閒置工作會於約 15 分鐘後自動清理。';
   }
   async function ensureSession() {
@@ -272,12 +276,37 @@ export function createKaraokeSession(options) {
       return Array.isArray(values) ? values.slice(-100).map(x => savedResult(x.title, x.score)) : [];
     } catch { return []; }
   }
+  let renderedHistory = [];
+  function historySelection() {
+    const checks = [...$('score-history').querySelectorAll('input[type=checkbox]')], count = checks.filter(x=>x.checked).length;
+    $('delete-history-selected').disabled = count === 0;
+    $('history-select-all').disabled = checks.length === 0;
+    $('clear-history').disabled = checks.length === 0;
+    $('history-select-all').checked = checks.length > 0 && count === checks.length;
+    $('history-select-all').indeterminate = count > 0 && count < checks.length;
+  }
   function renderHistory() {
     const list = $('score-history'); list.replaceChildren();
-    const rows = historyRows();
-    if (!rows.length) { const li = document.createElement('li'); li.textContent = '還沒有演唱紀錄。'; list.append(li); }
-    for (const row of rows.reverse()) { const li = document.createElement('li'), title = document.createElement('span'), score = document.createElement('b'); title.textContent = row.title; score.textContent = `${row.score} 分`; li.append(title, score); list.append(li); }
+    renderedHistory = historyRows();
+    if (!renderedHistory.length) { const li = document.createElement('li'); li.textContent = '還沒有演唱紀錄。'; list.append(li); }
+    renderedHistory.map((row,index)=>({...row,index})).reverse().forEach(row => {
+      const li = document.createElement('li'), label = document.createElement('label'), check = document.createElement('input'), title = document.createElement('span'), score = document.createElement('b');
+      label.className = 'check-option'; check.type = 'checkbox'; check.value = row.index; check.setAttribute('aria-label', `選取 ${row.title} ${row.score} 分`);
+      check.addEventListener('change',historySelection); title.textContent = row.title; score.textContent = `${row.score} 分`;
+      label.append(check,title); li.append(label,score); list.append(li);
+    });
+    historySelection();
   }
+  $('history-select-all').addEventListener('change',()=>{ $('score-history').querySelectorAll('input[type=checkbox]').forEach(check=>{check.checked=$('history-select-all').checked;}); historySelection(); });
+  $('delete-history-selected').addEventListener('click',()=>{
+    try {
+      if (JSON.stringify(historyRows()) !== JSON.stringify(renderedHistory)) { renderHistory(); $('history-status').textContent = '紀錄已在另一個分頁變更，請重新勾選。'; return; }
+      const selected = new Set([...$('score-history').querySelectorAll('input:checked')].map(x=>Number(x.value)));
+      localStorage.setItem(HISTORY,JSON.stringify(renderedHistory.filter((row,index)=>!selected.has(index))));
+      renderHistory(); $('history-status').textContent = `已清除 ${selected.size} 筆分數紀錄；演唱錄音與歌曲仍保留。`;
+    } catch { $('history-status').textContent = '無法清除瀏覽器紀錄。'; }
+  });
+  window.addEventListener('storage',event=>{if(event.key===HISTORY || event.key===null)renderHistory();});
   async function finish() {
     if (!take || !reference || ['result', 'finishing'].includes(phase)) return;
     restartToken++; phase = 'finishing'; controls();
@@ -295,7 +324,7 @@ export function createKaraokeSession(options) {
     $('live-feedback').textContent = '本輪已結束，歌曲已保留'; $('target-note').textContent = '—';
     $('prepare-status').textContent = `已就緒：${reference.title} · 基準已保留，直接按「從頭開始唱」即可再唱。`;
     phase = 'result'; $('mic-start').disabled = false;
-    message(result.score === null ? '這段沒有可評分的原唱人聲（休息或已遮罩），未保存分數。歌曲已保留，可直接重新開始。' : saved ? '已結算，只保存歌名與分數。歌曲已保留，可直接按「從頭開始唱」。' : '已結算，但瀏覽器不允許儲存紀錄；分數仍顯示在這裡。');
+    message(result.score === null ? '這段沒有可評分的原唱人聲（休息或已遮罩），未保存分數。歌曲已保留，可直接重新開始。' : saved ? '已結算，分數紀錄已保存；錄音結果請看錄音狀態。歌曲已保留，可直接按「從頭開始唱」。' : '已結算，但瀏覽器不允許儲存紀錄；分數仍顯示在這裡。');
     renderHistory(); controls();
   }
   function renderPreparation(state) {
@@ -395,6 +424,12 @@ export function createKaraokeSession(options) {
     try {
       if (!options.micReady()) await options.startMic();
       if (request !== restartToken || !reference || !options.micReady()) { if (request === restartToken) { phase = take ? 'paused' : 'ready'; message('未開始演唱：麥克風尚未就緒，請查看「收音」區的狀態，再按「從頭開始唱」。'); controls(); } return; }
+      await recording.prepare(reference, async () => {
+        const response = await fetch(BASE + `/library/${reference.cacheId}/accompaniment`, {headers: {'X-Karaoke-Token':token}, credentials:'omit', cache:'no-store', signal:AbortSignal.timeout(30000)});
+        if (!response.ok) throw new Error('無法取得錄音伴奏，請補建試聽音軌或改選只有歌聲。');
+        return response.arrayBuffer();
+      });
+      if (request !== restartToken || !reference || !options.micReady()) { await recording.stop(); return; }
       message('正在同步 YouTube 到 0 秒…');
       await seekPlayerToStart(p, () => request !== restartToken || !reference || !options.micReady());
       if (request !== restartToken || !reference || !options.micReady()) return;
@@ -408,12 +443,14 @@ export function createKaraokeSession(options) {
       if (p.getPlayerState() === 1) playerState(1);
     } catch (error) {
       if (request !== restartToken) return;
-      phase = 'paused'; p?.pauseVideo?.(); message(error.message); controls();
+      await recording.stop(); phase = 'paused'; p?.pauseVideo?.(); message(error.message); controls();
     }
   });
   $('finish-song').addEventListener('click', finish);
-  $('clear-history').addEventListener('click', () => { try { localStorage.removeItem(HISTORY); renderHistory(); } catch { message('無法清除瀏覽器紀錄。'); } });
+  $('clear-history').addEventListener('click', () => { try { localStorage.removeItem(HISTORY); renderHistory(); $('history-status').textContent = '分數紀錄已全部清除；演唱錄音與歌曲仍保留。'; } catch { message('無法清除瀏覽器紀錄。'); } });
   function playerState(state) {
+    if (phase !== 'restarting' || state !== 1) recording.playerState(state, options.player()?.getCurrentTime?.() || 0);
+    if (state === 1) recording.clearPreview();
     if (maskBusy) return;
     if (state === 1) { stopPreview(); options.cancelCalibration?.(); }
     if (!reference || ['finishing','result','restarting'].includes(phase)) return;
@@ -471,8 +508,8 @@ export function createKaraokeSession(options) {
   });
   renderHistory(); controls();
   return {
-    reference: () => displayReference, sample, playerState,
-    pauseForCalibration() { if (phase === 'restarting') { restartToken++; phase = take ? 'paused' : 'ready'; } options.player()?.pauseVideo?.(); stopPreview(); controls(); },
+    reference: () => displayReference, sample, playerState, stopRecording: recording.stop,
+    pauseForCalibration() { if (phase === 'restarting') { recording.stop(); restartToken++; phase = take ? 'paused' : 'ready'; } options.player()?.pauseVideo?.(); stopPreview(); controls(); },
     async changeSong(id) { if (loadedVideo !== id) { await clear(); loadedVideo = id; } },
     micStarted() {
       if (reference && options.player()?.getPlayerState?.() === 1) playerState(1);
