@@ -98,6 +98,7 @@ export class ScoringTake {
     this.excluded = maskedCells(validated);
     this.reference = applyMasks(validated);
     this.observations = new Map();
+    this.sampleDistances = new Map(); this.lastSampleIndex = null;
   }
   begin(time = 0) {
     const index = Math.max(0, Math.min(this.reference.frames.length, Math.floor((Number.isFinite(time) ? time : 0) / this.reference.step)));
@@ -111,13 +112,21 @@ export class ScoringTake {
   }
   sample(time, hz) {
     if (!Number.isFinite(time) || time < 0) return;
-    const index = Math.floor(time / this.reference.step);
+    const step=this.reference.step, cell=Math.floor(time/step), index=Math.round(time/step);
     if (index >= this.reference.frames.length || index < this.startIndex) return;
-    this.endIndex = Math.max(this.endIndex, index + 1);
-    if (this.excluded[index]) return;
-    // One observation per time cell: faster sampling or replaying cannot add points.
+    // Reference frames describe the instant i*step, not the end of a 100 ms bin.
+    // Pick by distance in time only, never by pitch quality. A new visit (rewind)
+    // replaces that cell's previous performance rather than keeping a best score.
+    if (index !== this.lastSampleIndex) this.sampleDistances.delete(index);
+    this.lastSampleIndex=index;
+    this.endIndex=Math.max(this.endIndex,Math.min(this.reference.frames.length,cell+1));
+    if (this.excluded[index] || this.excluded[cell]) return;
+    const distance=Math.abs(time-index*step);
+    if (distance>(this.sampleDistances.get(index)??Infinity)+1e-9) return;
+    this.sampleDistances.set(index,distance);
     this.observations.set(index, Number.isFinite(hz) && hz >= 65 && hz <= 1000 ? hz : null);
   }
+
   result(includeRhythm = true) {
     let expected = 0, voiced = 0, points = 0;
     const start = this.rangeMode === 'performed' ? this.startIndex : 0;
@@ -143,7 +152,7 @@ export class ScoringTake {
       sampledSeconds: Math.round([...this.observations.keys()].filter(i => i >= start && i < end && this.reference.frames[i] !== null).length * this.reference.step * 10) / 10,
     };
   }
-  clear() { this.observations.clear(); this.reference.frames = []; }
+  clear() { this.observations.clear(); this.sampleDistances.clear(); this.lastSampleIndex=null; this.reference.frames = []; }
 }
 
 export function savedResult(title, score) {

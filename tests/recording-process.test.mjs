@@ -18,3 +18,13 @@ test('post scoring retains masks, performed bounds, skipped gaps, and full-song 
  const gaps={...post,reference,segments:[{offset:0,songTime:0,duration:1},{offset:1,songTime:2,duration:1}],samples:post.samples.filter(x=>x.time<1||x.time>=2.1)};
  assert.ok(rescoreRecording(gaps,100).coverage<100);
 });
+
+test('dense samples with note changes between reference timestamps improve after the correct delay',()=>{
+ const notes=[440,523.25,659.25,392], melody=t=>t<.05?440:notes[Math.floor((t-.05)/.5)%4];
+ const reference={version:1,videoId:'M7lc1UVf-VE',title:'100 ms late',step:.1,duration:8,frames:Array.from({length:80},(_,i)=>melody(i*.1)),masks:[]};
+ const samples=Array.from({length:800},(_,i)=>{const time=(i+.1)*.01;return{time,hz:time<.1?null:melody(time-.1)}});
+ const post={reference,scoring:{rangeMode:'performed'},segments:[{offset:0,songTime:0,duration:8}],samples};
+ const before=rescoreRecording(post,0),after=rescoreRecording(post,100);
+ assert.ok(after.score>before.score,JSON.stringify({before,after}));assert.equal(after.pitch,100);assert.equal(after.rhythm,100);
+ console.log('Known 100 ms delay:',JSON.stringify({before,after}));
+});

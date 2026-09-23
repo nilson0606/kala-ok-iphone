@@ -129,3 +129,12 @@ test('difficulty changes pitch and timing tolerance without rewarding silence or
   assert.ok(pitch[0]<pitch[1]&&pitch[1]<pitch[2],JSON.stringify(pitch));
   assert.ok(rhythm[0]<rhythm[1]&&rhythm[1]<rhythm[2],JSON.stringify(rhythm));
 });
+
+test('choose closest timestamp, not latest or best pitch; replay still replaces the previous singing',()=>{
+ const take=new ScoringTake(reference());
+ take.sample(.101,523.25);take.sample(.14,440);assert.equal(take.observations.get(1),523.25);
+ take.sample(.16,440);take.sample(.199,null);assert.equal(take.observations.get(2),null);
+ take.sample(.101,440);assert.equal(take.observations.get(1),440);
+ take.sample(.101,null);assert.equal(take.observations.get(1),null);
+ const masked=new ScoringTake({...reference(),masks:[{start:1,end:2}]});masked.sample(1.99,440);assert.equal(masked.observations.has(20),false);
+});
