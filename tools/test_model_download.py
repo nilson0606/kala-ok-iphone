@@ -25,6 +25,16 @@ class ModelDownloadTests(unittest.TestCase):
                 download_model_file('https://fixture/model',target)
                 self.assertEqual(get.call_count,2)
 
+    def test_encoded_response_uses_decoded_bytes_not_transfer_length(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target=Path(directory)/'catalog.json'
+            response=self.response([b'{"models": []}'],length=7)
+            response.headers['content-encoding']='gzip'
+            with patch('model_download.requests.get',return_value=response) as get, patch('model_download.tqdm'):
+                download_model_file('https://fixture/catalog',target)
+                get.assert_called_once()
+                self.assertEqual(target.read_bytes(),b'{"models": []}')
+
     def test_failed_download_does_not_leave_a_model_or_partial_file(self):
         with tempfile.TemporaryDirectory() as directory:
             target=Path(directory)/'model.ckpt'

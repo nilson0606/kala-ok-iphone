@@ -10,7 +10,7 @@ import audio_pipeline as pipeline
 
 class VocalModePipelineTests(unittest.TestCase):
     def test_reference_uses_selected_voice_and_only_preview_files_survive(self):
-        for model, mode, method, strategy in itertools.product(['demucs', 'bs-roformer'], ['all', 'lead'], ['yin','rmvpe'], ['single','residual']):
+        for model, mode, method, strategy in itertools.product(['demucs', 'bs-roformer', 'mel-roformer'], ['all', 'lead'], ['yin','rmvpe'], ['single','residual']):
             with self.subTest(model=model, mode=mode), tempfile.TemporaryDirectory(prefix='karaoke-pipeline-') as temporary:
                 root=Path(temporary)
                 job=root/'.runtime'/'jobs'/('a'*32)

@@ -141,7 +141,7 @@ async function start(videoId, seconds, preview = false, force = false, vocalMode
   return job;
 }
 export async function handleLocalJobs(req, res) {
-  if (req.url === '/session' && req.method === 'GET') { json(res, 200, { token, features: ['library', 'stem-preview', 'library-location', 'separation-progress', 'rebuild-song', 'lead-vocals', 'separation-models', 'score-masks', 'pitch-methods', 'residual-separation'] }); return true; }
+  if (req.url === '/session' && req.method === 'GET') { json(res, 200, { token, features: ['library', 'stem-preview', 'library-location', 'separation-progress', 'rebuild-song', 'lead-vocals', 'separation-models', 'score-masks', 'pitch-methods', 'residual-separation', 'mel-roformer'] }); return true; }
   if (!req.url.startsWith('/jobs') && !req.url.startsWith('/library') && req.url !== '/shutdown') return false;
   if (req.headers['x-karaoke-token'] !== token) { json(res, 403, { error: 'Session token required' }); return true; }
   if (req.url === '/library/location' && req.method === 'GET') { json(res, 200, { ...await location.get(), selectionPending: !!folderPicker }); return true; }
@@ -179,7 +179,7 @@ export async function handleLocalJobs(req, res) {
   }
   if (req.url === '/library' && req.method === 'GET') { json(res, 200, { songs: await library.list() }); return true; }
   if (req.url.startsWith('/library/')) {
-    const match = /^\/library\/([\w-]{11}_(?:0|15|30|60)(?:_lead)?(?:_bs-roformer)?(?:_rmvpe)?(?:_residual)?_v1)(?:\/(reference|vocals|accompaniment|lead|backing|masks))?$/.exec(req.url);
+    const match = /^\/library\/([\w-]{11}_(?:0|15|30|60)(?:_lead)?(?:_(?:bs-roformer|mel-roformer))?(?:_rmvpe)?(?:_residual)?_v1)(?:\/(reference|vocals|accompaniment|lead|backing|masks))?$/.exec(req.url);
     if (!match) { json(res, 400, { error: '無效的本機歌曲。' }); return true; }
     const [, id, asset] = match;
     if (asset === 'masks' && req.method === 'POST') {
@@ -222,7 +222,7 @@ export async function handleLocalJobs(req, res) {
       if (!/^[\w-]{11}$/.test(data.videoId || '') || ![0, 15, 30, 60].includes(data.seconds)) { json(res, 400, { error: '影片網址或片段長度無效。' }); return true; }
       if ([...jobs.values()].some(j => !['ready','failed'].includes(j.stage))) { json(res, 409, { error: '已有歌曲正在處理，請先取消或等待完成。' }); return true; }
       if (data.vocalMode !== undefined && !['all','lead'].includes(data.vocalMode)) { json(res, 400, { error: '無效的分離模式。' }); return true; }
-      if (data.separationModel !== undefined && !['demucs','bs-roformer'].includes(data.separationModel)) { json(res, 400, { error: '無效的分離模型。' }); return true; }
+      if (data.separationModel !== undefined && !['demucs','bs-roformer','mel-roformer'].includes(data.separationModel)) { json(res, 400, { error: '無效的分離模型。' }); return true; }
       if (data.pitchMethod !== undefined && !['yin','rmvpe'].includes(data.pitchMethod)) { json(res,400,{error:'無效的音高擷取方式。'}); return true; }
       if (data.separationMethod !== undefined && !['single','residual'].includes(data.separationMethod)) { json(res,400,{error:'無效的歌曲基準處理流程。'}); return true; }
       if (editingMasks.has(library.maskFile(cacheKey(data.videoId,data.seconds,data.vocalMode || 'all',data.separationModel || 'demucs',data.pitchMethod || 'yin',data.separationMethod || 'single')))) { json(res,409,{error:'遮罩保存中，請稍後準備歌曲。'}); return true; }

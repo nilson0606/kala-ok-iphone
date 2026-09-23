@@ -21,7 +21,7 @@
 
 ## 主唱／和音分離（選用）
 
-「聲曲分離模式」預設仍是人聲／伴奏。選「主唱／和音分離」時，先用所選的 Demucs 或 BS-RoFormer 取得全部人聲，再用 [audio-separator](https://github.com/nomadkaraoke/python-audio-separator) 的 Mel Band Roformer Karaoke 模型 `mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt` 估計主唱與和音；旋律基準只從主唱擷取。伴奏節拍分析維持原方式。這不是歌手身分辨識，齊唱、二重唱、疊軌仍可能分錯，請用試聽判斷是否適合該歌。
+「聲曲分離模式」預設仍是人聲／伴奏。選「主唱／和音分離」時，先用所選的 Demucs、BS-RoFormer 或 Mel-Band RoFormer 取得全部人聲，再用 [audio-separator](https://github.com/nomadkaraoke/python-audio-separator) 的 Mel Band Roformer Karaoke 模型 `mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt` 估計主唱與和音；旋律基準只從主唱擷取。伴奏節拍分析維持原方式。這不是歌手身分辨識，齊唱、二重唱、疊軌仍可能分錯，請用試聽判斷是否適合該歌。
 
 第一次需額外下載約 913 MB 模型，保存於 `.runtime/models/lead`；之後重用。現有安裝先停止工具、更新程式碼、重跑 `setup-local.ps1` 再啟動，會安裝配對 TorchVision 0.20.1、audio-separator 0.47.0 與相關依賴。此模型的推論使用 PyTorch CUDA（可用時）；CPU ONNX Runtime 是套件匯入所需，不代表 Roformer 只能用 CPU。GPU 錯誤會用獨立 CPU 程序重試。
 
@@ -110,9 +110,9 @@ node tests/library-browser-check.mjs
 
 ## 可選 BS-RoFormer 模型
 
-「聲曲分離模型」提供 Demucs／htdemucs（預設）與 BS-RoFormer／Viperx 1297。後者固定使用 `model_bs_roformer_ep_317_sdr_12.9755.ckpt`，約 639 MB，首次自動下載至 `.runtime/models/bs-roformer`。兩者皆可搭配主唱／和音分離；RoFormer 共用既有 audio-separator 依賴，batch 1、segment 256、overlap 4。模型下載先寫暫存檔，完整收到才發布，斷線重試且失敗不留下可被誤認為完整的模型。
+「聲曲分離模型」提供 Demucs／htdemucs（預設）與 BS-RoFormer／Viperx 1297。後者固定使用 `model_bs_roformer_ep_317_sdr_12.9755.ckpt`，約 639 MB，首次自動下載至 `.runtime/models/bs-roformer`。另可選 Mel-Band RoFormer／Kim 人聲，使用 Kimberley Jensen 的原始 [MelBandRoformer](https://github.com/KimberleyJensen/Mel-Band-Roformer-Vocal-Model) checkpoint（約 913 MB），固定作者版本 `ac9b0614ab3cd7f77219e18ba494dfd93956c348`，以 audio-separator 目錄名稱 `vocals_mel_band_roformer.ckpt` 保存於 `.runtime/models/mel-roformer`；這與主唱／和音專用 Karaoke 模型不同。三者皆可搭配主唱／和音分離；RoFormer 共用既有 audio-separator 依賴，batch 1、segment 256、overlap 4。模型下載先寫暫存檔，完整收到才發布，斷線重試且失敗不留下可被誤認為完整的模型。
 
-既有歌曲沿用原目錄，不做遷移；沒有 `separationModel` 的舊資料視為 `demucs`。BS-RoFormer 的快取 ID 多 `_bs-roformer`，同影片、範圍與人聲模式可並存。覆蓋及刪除只影響對應版本；歌單、就緒及試聽訊息標示模型。補建試聽保持目前載入的模型。新版頁面遇到不支援模型選擇的舊本機工具會明確要求更新，不會默默使用 Demucs。
+既有歌曲沿用原目錄，不做遷移；沒有 `separationModel` 的舊資料視為 `demucs`。BS-RoFormer 的快取 ID 多 `_bs-roformer`，Mel-Band RoFormer 多 `_mel-roformer`，同影片、範圍與人聲模式可並存。覆蓋及刪除只影響對應版本；歌單、就緒及試聽訊息標示模型。補建試聽保持目前載入的模型。新版頁面遇到不支援模型選擇的舊本機工具會明確要求更新，不會默默使用 Demucs。
 
 本次驗證：26 項 JavaScript、18 項 Python 測試；Edge／Chrome 的正式版資產通過模型切換、舊庫載入、試聽、主唱模式、覆蓋、舊工具攔截與手冊檢查。另以 8 秒合成音訊實際執行 BS-RoFormer，兩條 WAV 都輸出 8 秒、44.1 kHz 雙聲道並完整解碼。短測只確認功能，不代表真人歌曲分離品質或長時間負載驗證。
 
@@ -147,14 +147,14 @@ RMVPE 驗證：33 項 JavaScript、24 項 Python 測試；Edge／Chrome 的正�
 
 ### 試聽版本確認
 
-試聽依已載入 `reference.cacheId` 取得音檔；Demucs／BS 使用不同 ID。試聽區固定顯示實際歌曲、模型與模式。改選尚未套用的分離模型／人聲模式會停止並清除舊 blob，停用試聽直到準備完成；只切換音高方式不改音軌。前端取檔也明確 `cache: no-store`（本機 API 原有 `Cache-Control: no-store`）。Edge／Chrome 回歸測試使用不同音訊 bytes 模擬兩模型，逐一核對實際請求 ID 和 audio 元件 blob 雜湊，包含切回 Demucs。
+試聽依已載入 `reference.cacheId` 取得音檔；Demucs／BS／Mel 使用不同 ID。試聽區固定顯示實際歌曲、模型與模式。改選尚未套用的分離模型／人聲模式會停止並清除舊 blob，停用試聽直到準備完成；只切換音高方式不改音軌。前端取檔也明確 `cache: no-store`（本機 API 原有 `Cache-Control: no-store`）。Edge／Chrome 回歸測試使用不同音訊 bytes 模擬三種模型，逐一核對實際請求 ID 和 audio 元件 blob 雜湊，包含切回 Demucs。
 
 另在本機實際比對《老鼠愛大米》Demucs／BS 的試聽 API bytes 與歌曲庫檔案一致、雜湊不同；取第 45、90、180 秒各 8 秒解碼後，三段 PCM 都不同，排除只差檔案標頭。此檢查證明音軌有切換，不代表 BS 分離品質一定更好。
 
 
 ## 伴奏二次分離與反向相減（選用）
 
-「歌曲基準處理流程」預設 `single`，保持原有分離管線；`residual` 使用所選 Demucs 或 BS-RoFormer 連續處理原曲和第一輪伴奏，再計算 `V = M - I2`。不是把第一輪伴奏直接相減，也不是將人聲再淨化。可與主唱／和音、YIN／RMVPE 組合；主唱分離放在相減後。
+「歌曲基準處理流程」預設 `single`，保持原有分離管線；`residual` 使用所選 Demucs、BS-RoFormer 或 Mel-Band RoFormer 連續處理原曲和第一輪伴奏，再計算 `V = M - I2`。不是把第一輪伴奏直接相減，也不是將人聲再淨化。可與主唱／和音、YIN／RMVPE 組合；主唱分離放在相減後。
 
 新流程先將來源轉為 44.1 kHz 雙聲道浮點 WAV，兩輪輸出禁用獨立音量正規化／削波。Demucs 由 `tools/demucs_lossless.py` 在子程序內改用 float writer；BS worker 的 `--preserve-gain` 關閉輸入及輸出峰值縮放，不修改已安裝的套件。`tools/residual_separation.py` 驗證相同樣本長度、聲道與取樣率，以區塊相減並拒絕非有限數值。未對齊不默默截切或補零。
 
@@ -163,3 +163,11 @@ RMVPE 驗證：33 項 JavaScript、24 項 Python 測試；Edge／Chrome 的正�
 進度新增第二輪伴奏與反向相減，第二輪從 0% 開始；相減沒有假造進度。整體等待上限新流程為 60 分鐘，單次仍為 30 分鐘，單個模型子程序仍有原本逾時限制。兩種流程在歌單與試聽來源均有標示；改選但未載入時停用舊試聽。新流程不保證較乾淨，需以實際歌曲比較。
 
 本次驗證：35 項 JavaScript、30 項 Python 測試通過；Edge／Chrome 驗證單次／二次流程切換、實際載入的試聽 bytes、第二輪進度、舊 helper 攔截、遮罩與 YIN／RMVPE 組合。另以 2 秒合成雙聲道音訊在 CPU 實際跑完 Demucs 與 BS-RoFormer 各兩輪，88200 個樣本保持對齊，`V + I2` 與混音最大誤差低於 2e-7。這些只驗證流程和波形運算，不代表整首長時間負載或真人歌曲分離品質驗證。短測另外發現 Windows 的空 CUDA 裝置遮罩會產生 available=true、count=0；BS worker 已選定 CPU 時改用明確的 -1 遮罩，預設 GPU 選擇不變。
+
+### 第三種人聲分離模型（2026-09-23）
+
+預設仍為 Demucs，新增 Mel-Band RoFormer／Kim 人聲，可搭配單次或伴奏二次分離＋反向相減。固定同一影片與分析範圍時，3 模型 × 2 流程 × 2 人聲模式 × 2 音高方式，共 24 種結果可各自保留，全部共用同一份遮罩。新模型有獨立 `mel-roformer` helper capability，舊工具會要求更新，不會誤用原模型。手冊含切換與試聽步驟。
+
+模型下載器修正 GitHub 壓縮回應的長度判定：串流已解壓縮時，不拿壓縮 Content-Length 與解壓後的位元組數比較；仍拒絕空檔，未壓縮的截斷回應和串流中斷仍會重試，完成前不發布模型檔。
+
+驗證：36 項 JavaScript、32 項 Python 測試通過；24 組合的遮罩共用、快取隔離、覆蓋後保留遮罩均有回歸測試。以原作者 SHA-256 `87201f4d31afb5bc79993230fc49446918425574db48c01c405e44f365c7559e` 核對下載的 Mel checkpoint，並在 CPU 實跑 2 秒雙聲道音訊的單次與二次分離，88200 個樣本均可讀且對齊；二次結果與伴奏相加重建混音的最大誤差約 7.5e-14。修正 Kim 配置以 `other` 命名伴奏的對應，避免推論完成卻找不到試聽來源。短測不代表整首歌曲的品質或長時間負載驗證。

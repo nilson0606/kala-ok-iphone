@@ -86,25 +86,25 @@ test('model versions preserve legacy IDs and isolate replacement, preview access
     const library = new LocalLibrary(path.join(dir,'library'));
     const ref = {version:1,videoId:'M7lc1UVf-VE',title:'Legacy',step:.1,frames:Array(100).fill(440),duration:10,rangeSeconds:30};
     const ids = [];
-    for (const model of ['demucs','bs-roformer']) for (const mode of ['all','lead']) {
+    for (const model of ['demucs','bs-roformer','mel-roformer']) for (const mode of ['all','lead']) {
       const id = cacheKey(ref.videoId,30,mode,model); ids.push(id);
       await library.save(id,{...ref,vocalMode:mode,...(model==='demucs'?{}:{separationModel:model})},source,true);
     }
-    assert.equal(new Set(ids).size,4);
+    assert.equal(new Set(ids).size,6);
     assert.deepEqual(ids.slice(0,2),['M7lc1UVf-VE_30_v1','M7lc1UVf-VE_30_lead_v1']);
     const reopened = new LocalLibrary(library.root);
     assert.equal((await reopened.get(ids[0])).separationModel,'demucs');
-    assert.deepEqual((await reopened.list()).map(s=>s.separationModel).sort(),['bs-roformer','bs-roformer','demucs','demucs']);
+    assert.deepEqual((await reopened.list()).map(s=>s.separationModel).sort(),['bs-roformer','bs-roformer','demucs','demucs','mel-roformer','mel-roformer']);
     await assert.rejects(reopened.save(ids[0],{...ref,separationModel:'bs-roformer'},source,true));
     await writeFile(path.join(source,'vocals.mp3'),'new-vocals');
     await reopened.save(ids[2],{...ref,separationModel:'bs-roformer'},source,true,{replace:true});
     assert.equal((await reopened.audio(ids[2],'vocals')).toString(),'new-vocals');
-    for (const id of [ids[0],ids[1],ids[3]]) assert.equal((await reopened.audio(id,'vocals')).toString(),'old-vocals');
+    for (const id of [ids[0],ids[1],ids[3],ids[4],ids[5]]) assert.equal((await reopened.audio(id,'vocals')).toString(),'old-vocals');
     assert.equal(await reopened.audio(ids[2],'lead'),null);
     assert.equal((await reopened.audio(ids[3],'lead')).toString(),'old-lead');
     await reopened.delete(ids[2]);
     assert.equal(await reopened.get(ids[2]),null);
-    for (const id of [ids[0],ids[1],ids[3]]) assert.ok(await reopened.get(id));
+    for (const id of [ids[0],ids[1],ids[3],ids[4],ids[5]]) assert.ok(await reopened.get(id));
     assert.throws(()=>cacheKey(ref.videoId,30,'all','unknown'));
   } finally {
     if(path.dirname(path.resolve(dir))===path.resolve(tmpdir()) && path.basename(dir).startsWith('karaoke-library-'))await rm(dir,{recursive:true,force:true});
@@ -188,5 +188,37 @@ test('residual workflow isolates results, preserves legacy defaults and shares m
   assert.equal((await library.list()).length,3);
   assert.throws(()=>cacheKey(ref.videoId,30,'all','demucs','yin','unknown'));
   await library.delete(residual); assert.ok(await library.get(old));assert.ok(await library.get(advanced));
+ } finally {if(path.dirname(path.resolve(dir))===path.resolve(tmpdir())&&path.basename(dir).startsWith('karaoke-library-'))await rm(dir,{recursive:true,force:true});}
+});
+
+
+test('all 24 model/workflow/vocal/pitch variants share masks but retain their own previews', async()=>{
+ const dir=await mkdtemp(path.join(tmpdir(),'karaoke-library-'));
+ try {
+  const library=new LocalLibrary(path.join(dir,'library'));
+  const base={version:1,videoId:'M7lc1UVf-VE',title:'24 variants',step:.1,frames:Array(100).fill(440),duration:10,rangeSeconds:30};
+  const ids=[];
+  for(const separationModel of ['demucs','bs-roformer','mel-roformer'])
+   for(const separationMethod of ['single','residual'])
+    for(const vocalMode of ['all','lead'])
+     for(const pitchMethod of ['yin','rmvpe']) {
+      const id=cacheKey(base.videoId,30,vocalMode,separationModel,pitchMethod,separationMethod);ids.push(id);
+      for(const stem of ['vocals','accompaniment','lead','backing'])await writeFile(path.join(dir,stem+'.mp3'),id+':'+stem);
+      await library.save(id,{...base,separationModel,separationMethod,vocalMode,pitchMethod},dir,true);
+     }
+  assert.equal(new Set(ids).size,24);assert.equal((await library.list()).length,24);
+  await library.setMasks(ids[0],[{start:1,end:2}]);
+  const reopened=new LocalLibrary(library.root);
+  for(const id of ids) {
+   assert.deepEqual((await reopened.get(id)).masks,[{start:1,end:2}]);
+   assert.equal((await reopened.audio(id,'vocals')).toString(),id+':vocals');
+  }
+  await reopened.setMasks(ids.at(-1),[{start:3,end:5}]);
+  for(const id of ids)assert.deepEqual((await reopened.get(id)).masks,[{start:3,end:5}]);
+  const id=ids.at(-1),ref=await reopened.get(id);
+  await reopened.save(id,ref,dir,true,{replace:true});
+  assert.deepEqual((await reopened.get(id)).masks,[{start:3,end:5}]);
+  await reopened.delete(id);
+  for(const other of ids.slice(0,-1))assert.deepEqual((await reopened.get(other)).masks,[{start:3,end:5}]);
  } finally {if(path.dirname(path.resolve(dir))===path.resolve(tmpdir())&&path.basename(dir).startsWith('karaoke-library-'))await rm(dir,{recursive:true,force:true});}
 });

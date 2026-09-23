@@ -110,12 +110,12 @@ def choose_device(mode='auto'):
 
 
 def separate_audio(audio, job, mode='auto', model='demucs', *, preserve_gain=False, stage='separating'):
-    if model not in ('demucs', 'bs-roformer'):
+    if model not in ('demucs', 'bs-roformer', 'mel-roformer'):
         raise ValueError('Invalid separation model')
     selected = choose_device(mode)
     env = {**os.environ, 'TORCH_HOME': str(ROOT / '.runtime' / 'models'), 'OMP_NUM_THREADS': '4'}
     def attempt(device):
-        if model == 'bs-roformer':
+        if model in ('bs-roformer', 'mel-roformer'):
             worker_env = dict(env)
             if device == 'cpu':
                 # This branch already selected CPU (explicitly or after GPU failure).
@@ -123,9 +123,9 @@ def separate_audio(audio, job, mode='auto', model='demucs', *, preserve_gain=Fal
                 # device_count=0. The explicit no-device sentinel avoids that mismatch.
                 worker_env['CUDA_VISIBLE_DEVICES'] = '-1'
             run_separation([sys.executable, ROOT / 'tools' / 'lead_separator.py',
-                            '--model', 'bs-roformer', '--input', audio,
-                            '--output', job / 'stems' / 'bs-roformer' / audio.stem,
-                            '--models', ROOT / '.runtime' / 'models' / 'bs-roformer'] + (['--preserve-gain'] if preserve_gain else []), env=worker_env, stage=stage)
+                            '--model', model, '--input', audio,
+                            '--output', job / 'stems' / model / audio.stem,
+                            '--models', ROOT / '.runtime' / 'models' / model] + (['--preserve-gain'] if preserve_gain else []), env=worker_env, stage=stage)
             return
         command = [sys.executable, ROOT / 'tools' / 'demucs_lossless.py'] if preserve_gain else [sys.executable, '-m', 'demucs.separate']
         run_separation(command + ['--two-stems', 'vocals',
@@ -198,7 +198,7 @@ def main():
     parser.add_argument('--separate', action='store_true', help='Separate vocals and accompaniment locally')
     parser.add_argument('--reference', action='store_true', help='Build a temporary melody/beat reference')
     parser.add_argument('--preview', action='store_true', help='Keep compressed stems for optional local listening')
-    parser.add_argument('--separation-model', choices=['demucs', 'bs-roformer'], default='demucs')
+    parser.add_argument('--separation-model', choices=['demucs', 'bs-roformer', 'mel-roformer'], default='demucs')
     parser.add_argument('--separation-method', choices=['single', 'residual'], default='single')
     parser.add_argument('--pitch-method', choices=['yin', 'rmvpe'], default='yin')
     parser.add_argument('--vocal-mode', choices=['all', 'lead'], default='all')
@@ -255,7 +255,7 @@ def main():
                                                              separate=separate_audio, run=run, emit=emit)
             else:
                 report['separation'] = separate_audio(audio, job, args.device, args.separation_model)
-                stem_dir = job / 'stems' / ('htdemucs' if args.separation_model == 'demucs' else 'bs-roformer') / audio.stem
+                stem_dir = job / 'stems' / ('htdemucs' if args.separation_model == 'demucs' else args.separation_model) / audio.stem
                 stems = {'vocals': stem_dir / 'vocals.wav', 'accompaniment': stem_dir / 'no_vocals.wav'}
             report['separationMethod'] = args.separation_method
             for name, file in stems.items():

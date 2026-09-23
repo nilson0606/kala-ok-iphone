@@ -94,6 +94,17 @@ test('helper enforces setup, auth and idle-only changes; selected library surviv
     assert.deepEqual((await library.get(id)).masks,[{start:1,end:2}]);
     await request('/library/'+residualId,'DELETE');
     assert.ok(await library.get(id));
+    assert.ok((await(await request('/session')).json()).features.includes('mel-roformer'));
+    const melId=cacheKey('M7lc1UVf-VE',30,'lead','mel-roformer','rmvpe','residual');
+    for(const stem of ['vocals','accompaniment','lead','backing'])await writeFile(path.join(dir,stem+'.mp3'),'mel-'+stem);
+    await library.save(melId,{version:1,videoId:'M7lc1UVf-VE',title:'Mel fixture',step:.1,frames:Array(40).fill(440),duration:4,rangeSeconds:30,separationModel:'mel-roformer',separationMethod:'residual',vocalMode:'lead',pitchMethod:'rmvpe'},dir,true);
+    const melJob=await(await request('/jobs','POST',{videoId:'M7lc1UVf-VE',seconds:30,separationModel:'mel-roformer',separationMethod:'residual',vocalMode:'lead',pitchMethod:'rmvpe',preview:true})).json();
+    assert.equal(melJob.cached,true);assert.equal(melJob.cacheId,melId);
+    assert.equal((await(await request('/library/'+melId+'/reference')).json()).separationModel,'mel-roformer');
+    assert.equal(await(await request('/library/'+melId+'/lead')).text(),'mel-lead');
+    assert.deepEqual((await(await request('/jobs/'+melJob.id+'/reference')).json()).masks,[{start:1,end:2}]);
+    await request('/library/'+melId,'DELETE');
+    assert.ok(await library.get(id));
     const masks=[{start:1,end:2}];
     assert.equal((await request('/library/'+id+'/masks','POST',{masks},false)).status,403);
     assert.equal((await request('/library/'+id+'/masks','POST',{masks:[{start:0,end:99}]})).status,400);

@@ -22,7 +22,10 @@ def download_model_file(url, output_path):
                 request_url = urlunsplit(parts._replace(query=query))
             with requests.get(request_url, stream=True, timeout=(20, 60)) as response:
                 response.raise_for_status()
-                expected = int(response.headers.get('content-length', 0))
+                # iter_content returns decompressed bytes; Content-Length describes the
+                # compressed transfer when GitHub serves gzip/br metadata.
+                encoded = response.headers.get('content-encoding', 'identity').lower() != 'identity'
+                expected = 0 if encoded else int(response.headers.get('content-length', 0))
                 received = 0
                 with partial.open('wb') as output, tqdm(total=expected or None, unit='iB', unit_scale=True) as progress:
                     for chunk in response.iter_content(chunk_size=65536):

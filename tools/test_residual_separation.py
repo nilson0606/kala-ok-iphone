@@ -36,7 +36,7 @@ class ResidualTests(unittest.TestCase):
                 subtract_audio(root/'mix.wav',root/'bad.wav',root/'out.wav')
 
     def test_second_pass_receives_first_accompaniment_and_subtracts_i2_not_i1(self):
-        for model in ['demucs','bs-roformer']:
+        for model in ['demucs','bs-roformer','mel-roformer']:
             with self.subTest(model=model), tempfile.TemporaryDirectory() as directory:
                 root=Path(directory); calls=[]; stages=[]
                 mix=np.full((400,2),.75,dtype='float32')
@@ -58,13 +58,13 @@ class ResidualTests(unittest.TestCase):
                 self.assertEqual(stages,['residual_preparing','subtracting'])
 
     def test_preserve_gain_and_second_pass_stage_survive_gpu_fallback(self):
-        for model in ['demucs','bs-roformer']:
+        for model in ['demucs','bs-roformer','mel-roformer']:
             with patch('audio_pipeline.choose_device',return_value={'device':'cuda'}), patch('audio_pipeline.run_separation',side_effect=[RuntimeError('CUDA out of memory'),None]) as run, patch('audio_pipeline.emit') as emit:
                 separate_audio(Path('input.wav'),Path('job'),model=model,preserve_gain=True,stage='accompaniment_separating')
                 self.assertEqual(run.call_count,2)
                 for call in run.call_args_list:
                     self.assertEqual(call.kwargs['stage'],'accompaniment_separating')
-                    if model=='bs-roformer': self.assertIn('--preserve-gain',call.args[0])
+                    if model!='demucs': self.assertIn('--preserve-gain',call.args[0])
                     else: self.assertTrue(any(str(v).endswith('demucs_lossless.py') for v in call.args[0]))
                 self.assertEqual([c.args[0] for c in emit.call_args_list],['accompaniment_separating']*2)
 

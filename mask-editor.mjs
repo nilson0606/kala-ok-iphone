@@ -22,7 +22,7 @@ export function createMaskEditor(options) {
     const reference = options.reference();
     $('mask-list').replaceChildren();
     $('mask-start').value = ''; $('mask-end').value = '';
-    $('mask-song').textContent = reference ? `${reference.title} · ${reference.separationModel === 'bs-roformer' ? 'BS-RoFormer' : 'Demucs'} · ${reference.vocalMode === 'lead' ? '主唱模式' : '一般人聲'} · ${(reference.pitchMethod || 'yin').toUpperCase()} · 基準長度 ${formatMaskTime(reference.duration)}` : '尚未載入歌曲基準。';
+    $('mask-song').textContent = reference ? `${reference.title} · ${({'bs-roformer':'BS-RoFormer','mel-roformer':'Mel-Band RoFormer'}[reference.separationModel] || 'Demucs')} · ${reference.vocalMode === 'lead' ? '主唱模式' : '一般人聲'} · ${(reference.pitchMethod || 'yin').toUpperCase()} · 基準長度 ${formatMaskTime(reference.duration)}` : '尚未載入歌曲基準。';
     for (const [index, range] of (reference?.masks || []).entries()) {
       const row = document.createElement('li'), label = document.createElement('span'), jump = document.createElement('button'), remove = document.createElement('button');
       label.textContent = `${formatMaskTime(range.start)} → ${formatMaskTime(range.end)}`;

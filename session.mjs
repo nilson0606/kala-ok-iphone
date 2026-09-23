@@ -21,7 +21,7 @@ export function createKaraokeSession(options) {
   let reference = null, displayReference = null, excluded = [], maskBusy = false, masksSupported = false, take = null, jobId = null, token = null, generation = 0, timer;
   let requestedVocalMode = 'all', requestedModel = 'demucs', requestedPitch = 'yin', requestedMethod = 'single';
   const methodName = method => method === 'residual' ? '伴奏二次分離＋反向相減' : '單次分離';
-  const modelName = model => model === 'bs-roformer' ? 'BS-RoFormer／Viperx 1297' : 'Demucs／htdemucs';
+  const modelName = model => ({ demucs: 'Demucs／htdemucs', 'bs-roformer': 'BS-RoFormer／Viperx 1297', 'mel-roformer': 'Mel-Band RoFormer／Kim 人聲' }[model] || 'Demucs／htdemucs');
   let phase = 'idle', loadedVideo = null, lastProgress = 0, rangeComplete = false;
   let libraryLocation = null, locationBusy = false;
   let previewUrl = null, previewRequest = null, previewSerial = 0, restartToken = 0;
@@ -366,7 +366,8 @@ export function createKaraokeSession(options) {
       const helper = await ensureSession();
       if (requestedMethod !== 'single' && !helper.features?.includes('residual-separation')) throw new Error('本機工具需要更新才能使用伴奏二次分離＋反向相減，請更新並重新啟動工具。');
       if (requestedPitch !== 'yin' && !helper.features?.includes('pitch-methods')) throw new Error('本機工具需要更新才能使用 RMVPE，請更新並重新啟動工具。');
-      if (requestedModel !== 'demucs' && !helper.features?.includes('separation-models')) throw new Error('本機工具需要更新才能使用 BS-RoFormer，請更新工具包並重新啟動；缺少套件時再執行 setup-local.ps1。');
+      if (requestedModel === 'mel-roformer' && !helper.features?.includes('mel-roformer')) throw new Error('本機工具需要更新才能使用 Mel-Band RoFormer 人聲模型，請更新工具程式碼並重新啟動。');
+      if (requestedModel !== 'demucs' && !helper.features?.includes('separation-models')) throw new Error('本機工具需要更新才能使用 RoFormer 分離模型，請更新工具包並重新啟動；缺少套件時再執行 setup-local.ps1。');
       if (requestedVocalMode === 'lead' && !helper.features?.includes('lead-vocals')) throw new Error('本機工具需要更新才能使用主唱／和音分離，請更新工具包並重新執行 setup-local.ps1。');
       if (force && !helper.features?.includes('rebuild-song')) throw new Error('本機工具需要更新才能重新分離，請更新工具包並重新啟動。');
       if (!libraryLocation.configured) throw new Error('請先指定歌曲庫資料夾，再準備歌曲。');
