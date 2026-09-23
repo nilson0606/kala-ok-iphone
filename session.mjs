@@ -424,9 +424,9 @@ export function createKaraokeSession(options) {
     try {
       if (!options.micReady()) await options.startMic();
       if (request !== restartToken || !reference || !options.micReady()) { if (request === restartToken) { phase = take ? 'paused' : 'ready'; message('未開始演唱：麥克風尚未就緒，請查看「收音」區的狀態，再按「從頭開始唱」。'); controls(); } return; }
-      await recording.prepare(reference, async () => {
-        const response = await fetch(BASE + `/library/${reference.cacheId}/accompaniment`, {headers: {'X-Karaoke-Token':token}, credentials:'omit', cache:'no-store', signal:AbortSignal.timeout(30000)});
-        if (!response.ok) throw new Error('無法取得錄音伴奏，請補建試聽音軌或改選只有歌聲。');
+      await recording.prepare(reference, async stem => {
+        const response = await fetch(BASE + `/library/${reference.cacheId}/${stem}`, {headers: {'X-Karaoke-Token':token}, credentials:'omit', cache:'no-store', signal:AbortSignal.timeout(30000)});
+        if (!response.ok) throw new Error('無法取得錄音所需的配樂／和音，請補建試聽音軌或改選歌唱者。');
         return response.arrayBuffer();
       });
       if (request !== restartToken || !reference || !options.micReady()) { await recording.stop(); return; }

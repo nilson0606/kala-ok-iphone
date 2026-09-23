@@ -125,12 +125,12 @@
     <p class="help">選「已演唱範圍」時，後面尚未唱到的部分不扣分；這段期間的漏唱、跳過仍計入。每輪開始後固定，重唱時可重新選擇。</p>
     <p id="take-difficulty" class="help" aria-live="polite">尚未開始演唱；每輪開始後固定難度。</p>
     <div class="score-grid"><div class="total"><strong id="total-score">—</strong><span>總分 / 100</span></div><div><strong id="pitch-score">—</strong><span>音準 · 60%</span></div><div><strong id="rhythm-score">—</strong><span>進拍 · 25%</span></div><div><strong id="coverage-score">—</strong><span>完整度 · 15%</span></div></div>
-    <label for="recording-mode">演唱錄音儲存</label><select id="recording-mode"><option value="voice">只有歌聲（預設）</option><option value="mix">歌聲＋分離伴奏</option><option value="off">不保存錄音</option></select>
-    <p class="help">按「從頭開始唱」，影片開始播放時同步錄音；停止收音、結束並結算或影片播完時保存。暫停／緩衝時暫停錄音。加伴奏使用已保存的伴奏軌，超過該音軌長度後只錄歌聲。請戴耳機，避免原唱從喇叭漏入麥克風。</p>
+    <label for="recording-mode">演唱錄音儲存</label><select id="recording-mode"><option value="voice">歌唱者（預設）</option><option value="mix">歌唱者＋配樂／和音</option><option value="off">不保存錄音</option></select>
+    <p class="help">按「從頭開始唱」，影片開始播放時同步錄音；停止收音、結束並結算或影片播完時保存。暫停／緩衝時暫停錄音。依已載入版本自動選軌：兩軌版本加入伴奏；四軌版本加入伴奏＋和音，不加入原唱主唱或全部人聲。超過音軌長度後只錄歌唱者。請戴耳機，避免原唱從喇叭漏入麥克風。</p>
     <fieldset id="recording-balance"><legend>錄音音量平衡</legend>
       <label class="check-option"><input id="recording-manual" type="checkbox">手動設定比例＋自動微調</label>
-      <p id="recording-balance-help" class="help">未勾選：自動平衡人聲與伴奏。勾選後使用你設定的音量，系統只做小幅修正。</p>
-      <div class="recording-levels"><div><label for="recording-voice-level">人聲音量 <output id="recording-voice-value">70%</output></label><input id="recording-voice-level" type="range" min="0" max="100" value="70" disabled></div><div><label for="recording-backing-level">伴奏音量 <output id="recording-backing-value">30%</output></label><input id="recording-backing-level" type="range" min="0" max="100" value="30" disabled></div></div>
+      <p id="recording-balance-help" class="help">未勾選：自動平衡歌唱者與配樂／和音。勾選後使用你設定的音量，系統只做小幅修正。</p>
+      <div class="recording-levels"><div><label for="recording-voice-level">歌唱者音量 <output id="recording-voice-value">70%</output></label><input id="recording-voice-level" type="range" min="0" max="100" value="70" disabled></div><div><label for="recording-backing-level">配樂／和音音量 <output id="recording-backing-value">30%</output></label><input id="recording-backing-level" type="range" min="0" max="100" value="30" disabled></div></div>
       <p id="recording-balance-status" class="help" role="status">自動平衡 · 平滑調整音量，低音量或未偵測到穩定歌聲時不自動增強麥克風。只影響錄音，不影響評分；每輪開始前設定。</p>
     </fieldset>
     <p id="recording-status" class="status" role="status">錄音只存在目前電腦的這個瀏覽器，可下載備份；不會上傳。</p>

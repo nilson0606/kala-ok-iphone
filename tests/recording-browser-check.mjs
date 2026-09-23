@@ -43,14 +43,15 @@ try {
   });
   const page=await context.newPage(), errors=[];
   page.on('pageerror',error=>errors.push(error.message));
-  let serial=0, hasPreview=true, backingRequests=0;
-  const ref=()=>({version:1,videoId:'M7lc1UVf-VE',title:'Recording fixture',cacheId:'M7lc1UVf-VE_30_v1',step:.1,duration:30,rangeSeconds:30,frames:Array(300).fill(440),beats:[],bpm:0,hasPreview});
+  let serial=0, hasPreview=true, backingRequests=0, harmonyRequests=0, vocalMode='all', missingHarmony=false; const stemRequests=[];
+  const ref=()=>({version:1,videoId:'M7lc1UVf-VE',title:'Recording fixture',cacheId:'M7lc1UVf-VE_30_v1',step:.1,duration:30,rangeSeconds:30,frames:Array(300).fill(440),beats:[],bpm:0,hasPreview,vocalMode});
   await page.route('http://127.0.0.1:4174/**',async route=>{
     const req=route.request(),url=new URL(req.url());let value={};
     if(url.pathname==='/session')value={token:'fixture',features:['library','library-location','separation-progress','rebuild-song','lead-vocals','score-masks','pitch-methods','separation-models']};
     else if(url.pathname==='/library/location')value={configured:true,path:'C:/fixture'};
     else if(url.pathname==='/library')value={songs:[]};
-    else if(url.pathname.endsWith('/accompaniment')) {backingRequests++;await route.fulfill({body:bsData,contentType:'audio/wav',headers:{'Access-Control-Allow-Origin':site}});return;}
+    else if(url.pathname.endsWith('/backing')) {harmonyRequests++;stemRequests.push('backing');await route.fulfill({status:missingHarmony?404:200,body:missingHarmony?'missing':melData,contentType:'audio/wav',headers:{'Access-Control-Allow-Origin':site}});return;}
+    else if(url.pathname.endsWith('/accompaniment')) {backingRequests++;stemRequests.push('accompaniment');await route.fulfill({body:bsData,contentType:'audio/wav',headers:{'Access-Control-Allow-Origin':site}});return;}
     else if(req.method()==='DELETE')value={cleared:true};
     else if(req.method()==='POST')value={id:String(++serial).padStart(32,'0')};
     else if(url.pathname.endsWith('/reference'))value=ref();
@@ -73,7 +74,7 @@ try {
     const audio=await ctx.decodeAudioData(await blob.arrayBuffer()),samples=audio.getChannelData(0),rate=audio.sampleRate;
     const from=Math.floor(rate*offset),length=Math.min(Math.floor(rate*.5),samples.length-from);
     function power(hz){let c=0,s=0;for(let i=0;i<length;i++){c+=samples[from+i]*Math.cos(2*Math.PI*hz*i/rate);s+=samples[from+i]*Math.sin(2*Math.PI*hz*i/rate);}return 2*Math.hypot(c,s)/length;}
-    const result={voice:power(440),backing:power(660),duration:audio.duration,bytes:blob.size};await ctx.close();return result;
+    const result={voice:power(440),backing:power(660),harmony:power(880),duration:audio.duration,bytes:blob.size};await ctx.close();return result;
   },{id,offset});}
   await page.locator('#url').fill('https://www.youtube.com/watch?v=M7lc1UVf-VE');await page.locator('#clip-seconds').selectOption('30');await page.locator('#prepare-song').click();
   await page.waitForFunction(()=>document.querySelector('#prepare-status').textContent.startsWith('已就緒'));
@@ -99,7 +100,7 @@ try {
   await start();assert.ok(await page.locator('#recording-manual').isDisabled());await delay(1000);
   await page.evaluate(()=>fixturePlayer.pauseVideo());await delay(900);
   const pauseSeconds=(await records())[0].seconds;
-  const balanceStatus=await page.locator('#recording-balance-status').textContent();assert.match(balanceStatus,/人聲修正.*伴奏修正/);
+  const balanceStatus=await page.locator('#recording-balance-status').textContent();assert.match(balanceStatus,/人聲修正.*配樂／和音修正/);
   await page.evaluate(()=>fixturePlayer.seekTo(10));await delay(60);
   await page.evaluate(()=>fixturePlayer.playVideo());await delay(900);
   await page.evaluate(()=>fixturePlayer.endVideo());await waitRecords(2);
@@ -110,6 +111,27 @@ try {
   assert.ok(mixed.seconds<2.6&&mixed.seconds>1.5,JSON.stringify(mixed));
   const afterSeek=await spectrum(mixed.id,1.3);assert.ok(afterSeek.voice>.03&&afterSeek.backing<.01,JSON.stringify(afterSeek));
   assert.ok(backingRequests>0);assert.ok(pauseSeconds<1.8);
+  // Four-stem versions mix only accompaniment + harmony, using the same gain bus.
+  vocalMode='lead';await page.locator('#vocal-mode').selectOption('lead');await page.locator('#prepare-song').click();
+  await page.waitForFunction(()=>document.querySelector('#prepare-status').textContent.startsWith('已就緒'));
+  const beforeStems=stemRequests.length;
+  await start();await delay(1000);await page.evaluate(()=>fixturePlayer.pauseVideo());await delay(200);
+  await page.evaluate(()=>fixturePlayer.seekTo(1));await delay(60);await page.evaluate(()=>fixturePlayer.playVideo());await delay(800);
+  await page.locator('#finish-song').click();await waitRecords(3);
+  await page.waitForFunction(()=>document.querySelector('#score-status').textContent.includes('已結算'));
+  const harmonyRecord=(await records())[0],harmonyAudio=await spectrum(harmonyRecord.id);
+  assert.deepEqual(harmonyRecord.stems,['accompaniment','backing']);
+  assert.deepEqual(stemRequests.slice(beforeStems),['accompaniment','backing']);
+  assert.ok(harmonyAudio.voice>.03&&harmonyAudio.backing>.03&&harmonyAudio.harmony>.03,JSON.stringify(harmonyAudio));
+  assert.ok(Math.abs(harmonyAudio.backing/harmonyAudio.harmony-1)<.1,JSON.stringify(harmonyAudio));
+  const harmonyAfterSeek=await spectrum(harmonyRecord.id,1.2);
+  assert.ok(harmonyAfterSeek.backing>.03&&harmonyAfterSeek.harmony>.03,JSON.stringify(harmonyAfterSeek));
+  await page.evaluate(id=>recordStore.delete(id),harmonyRecord.id);
+  // A missing harmony file must fail before recording instead of silently omitting it.
+  missingHarmony=true;const beforeMissing=await page.evaluate(()=>recorderCreated);
+  await page.locator('#sing-start').click();await page.waitForFunction(()=>document.querySelector('#score-status').textContent.includes('無法取得錄音所需'));
+  assert.equal(await page.evaluate(()=>recorderCreated),beforeMissing);assert.equal((await records()).length,2);
+  missingHarmony=false;
   // Restarting saves the old recording and creates another one; finishing saves once.
   await page.locator('#recording-mode').selectOption('voice');await start();await delay(650);
   await start();await waitRecords(3);await delay(650);await page.locator('#finish-song').click();await waitRecords(4);
@@ -162,5 +184,5 @@ try {
     return out.getChannelData(0).reduce((peak,x)=>Math.max(peak,Math.abs(x)),0);
   });assert.ok(peak<=.981&&peak>.5,peak);
   assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({voiceAudio,mixedAudio,balanceStatus,peak,manualAutoRatio:true,defaultAuto:true,incrementalSave:true,pauseResume:true,seekBeyondBacking:true,quotaRecovery:true,emptyRecordingAvoided:true,stopRewind:true,automaticFinish:true,restartSeparate:true,off:true,selectiveAndAllScoreDeletion:true,persistence:true,download:true,deleteOne:true,errors}));
+  console.log(JSON.stringify({voiceAudio,mixedAudio,harmonyAudio,harmonyAfterSeek,harmonyRequests,balanceStatus,peak,manualAutoRatio:true,defaultAuto:true,incrementalSave:true,pauseResume:true,seekBeyondBacking:true,quotaRecovery:true,emptyRecordingAvoided:true,stopRewind:true,automaticFinish:true,restartSeparate:true,off:true,selectiveAndAllScoreDeletion:true,persistence:true,download:true,deleteOne:true,errors}));
 } finally {await browser?.close();server.kill();await rm(fixture,{force:true});}

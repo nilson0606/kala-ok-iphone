@@ -20,7 +20,7 @@ export function createSingerRecorder(options) {
     $('recording-voice-value').textContent = $('recording-voice-level').value+'%';
     $('recording-backing-value').textContent = $('recording-backing-level').value+'%';
     if (!active) $('recording-balance-status').textContent = mode==='off' ? '不保存錄音，音量平衡不啟動。' : `${manual ? '手動＋自動微調' : '自動平衡'} · 只影響錄音，不影響評分；每輪開始前設定。`;
-    $('recording-balance-help').textContent = mode==='off' ? '已關閉錄音，音量平衡不啟動。' : manual ? '手動＋自動：依你的音量設定，兩路各自最多微調 ±3 dB。0% 保持靜音；每輪開始後固定設定。' : '自動平衡：依人聲及伴奏音量平滑調整，各自最多修正 ±6 dB。下方手動音量不參與；每輪開始後固定設定。';
+    $('recording-balance-help').textContent = mode==='off' ? '已關閉錄音，音量平衡不啟動。' : manual ? '手動＋自動：依你的音量設定，兩路各自最多微調 ±3 dB。0% 保持靜音；每輪開始後固定設定。' : '自動平衡：依歌唱者及配樂／和音音量平滑調整，各自最多修正 ±6 dB。下方手動音量不參與；每輪開始後固定設定。';
   }
   function clearPreview() {
     const audio = $('recording-audio'); audio.pause(); audio.removeAttribute('src'); audio.load(); audio.hidden = true;
@@ -32,7 +32,7 @@ export function createSingerRecorder(options) {
     for (const row of rows) {
       const li = document.createElement('li'), label = document.createElement('strong'), info = document.createElement('small'), buttons = document.createElement('div');
       label.textContent = row.title;
-      info.textContent = `${new Date(row.created).toLocaleString()} · ${row.mode === 'mix' ? '歌聲＋伴奏' : '只有歌聲'}${row.balance ? (row.balance.manual ? ' · 手動＋自動' : ' · 自動平衡') : ''} · ${Math.round(row.seconds)} 秒${row.complete ? '' : ' · 未正常結束，保留已儲存片段'}`;
+      info.textContent = `${new Date(row.created).toLocaleString()} · ${row.mode === 'mix' ? (row.stems?.includes('backing') ? '歌唱者＋配樂／和音' : '歌唱者＋配樂（無獨立和音）') : '歌唱者'}${row.balance ? (row.balance.manual ? ' · 手動＋自動' : ' · 自動平衡') : ''} · ${Math.round(row.seconds)} 秒${row.complete ? '' : ' · 未正常結束，保留已儲存片段'}`;
       buttons.className = 'button-row';
       for (const [text, action] of [
         ['試聽', async () => { await stop(); options.pausePlayer(); clearPreview(); previewURL = URL.createObjectURL(await store.blob(row)); $('recording-audio').src = previewURL; $('recording-audio').hidden = false; await $('recording-audio').play(); }],
@@ -50,30 +50,47 @@ export function createSingerRecorder(options) {
     link.href = url; link.download = `${meta.title.replace(/[\\/:*?"<>|]/g,'_').slice(0,80)}-${new Date(meta.created).toISOString().replace(/[:.]/g,'-')}.${meta.mime.includes('mp4') ? 'm4a' : 'webm'}`;
     link.click(); setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
-  function stopBacking(a) { if (a.backing) { try { a.backing.stop(); } catch {} a.backing.disconnect(); a.backing = null; } }
-  function syncBacking(a, time) {
-    if (!a.buffer || a.recorder.state !== 'recording') return;
-    if (!Number.isFinite(time) || time < 0 || time >= a.buffer.duration) { stopBacking(a); return; }
-    const expected = a.anchorTime + a.context.currentTime - a.anchorContext;
-    if (a.backing && Math.abs(expected - time) < .15) return;
-    stopBacking(a);
-    const node = a.context.createBufferSource(); node.buffer = a.buffer; node.connect(a.mix.input); node.start(0,time);
-    a.backing = node; a.anchorTime = time; a.anchorContext = a.context.currentTime;
+  function stopBacking(a) {
+    for (const node of a.backing) { try { node.stop(); } catch {} node.disconnect(); }
+    a.backing = [];
   }
-  async function prepare(reference, loadBacking) {
+  function syncBacking(a, time) {
+    if (!a.buffers.length || a.recorder.state !== 'recording') return;
+    if (!Number.isFinite(time) || time < 0 || a.buffers.every(buffer => time >= buffer.duration)) { stopBacking(a); return; }
+    const expected = a.anchorTime + a.context.currentTime - a.anchorContext;
+    if (a.backing.length && Math.abs(expected - time) < .15) return;
+    stopBacking(a);
+    const when = a.context.currentTime;
+    // Start accompaniment and harmony on the same audio clock; both follow seeks/pauses.
+    for (const buffer of a.buffers) {
+      if (time >= buffer.duration) continue;
+      const node = a.context.createBufferSource(); node.buffer = buffer; node.connect(a.mix.input); node.start(when,time);
+      a.backing.push(node);
+    }
+    a.anchorTime = time; a.anchorContext = when;
+  }
+  async function prepare(reference, loadStem) {
     await stop(); clearPreview();
     const mode = $('recording-mode').value;
     if (mode === 'off') { status('本輪不保存錄音。'); return; }
     const request = ++operation;
     if (!window.MediaRecorder) throw new Error('瀏覽器不支援錄音，請使用桌機 Chrome／Edge，或選不保存錄音。');
-    status(mode === 'mix' ? '正在準備錄音伴奏…' : '正在準備演唱錄音…');
+    status(mode === 'mix' ? '正在準備錄音配樂／和音…' : '正在準備演唱錄音…');
     const context = options.context(), stream = options.stream();
     if (!context || !stream) throw new Error('麥克風尚未就緒，無法開始錄音。');
     await store.open();
-    let buffer = null;
+    const stems = [], buffers = [];
     if (mode === 'mix') {
-      if (!reference.hasPreview) throw new Error('加伴奏錄音需要已保存的伴奏音軌；請先補建試聽音軌，或改選只有歌聲。');
-      buffer = await context.decodeAudioData(await loadBacking());
+      if (!reference.hasPreview) throw new Error('混音錄音需要已保存的分離音軌；請先補建試聽音軌，或改選歌唱者。');
+      // hasPreview is verified by the local library against every required file.
+      // Never substitute vocals/lead: that would put the original singer back in.
+      stems.push('accompaniment');
+      if (reference.vocalMode === 'lead') stems.push('backing');
+      for (const stem of stems) {
+        buffers.push(await context.decodeAudioData(await loadStem(stem)));
+        if (request !== operation || options.context() !== context) throw new Error('錄音準備已取消。');
+      }
+      if (buffers.some(buffer => Math.abs(buffer.duration - buffers[0].duration) > .15)) throw new Error('配樂與和音長度不一致，請補建音軌後再錄音。');
     }
     if (request !== operation || options.context() !== context) throw new Error('錄音準備已取消。');
     const destination = context.createMediaStreamDestination(), mic = context.createMediaStreamSource(stream);
@@ -83,8 +100,8 @@ export function createSingerRecorder(options) {
     let recorder;
     try { recorder = new MediaRecorder(destination.stream, mime ? {mimeType:mime} : {}); }
     catch (error) { mix.disconnect(); destination.stream.getTracks().forEach(t=>t.stop()); throw error; }
-    const meta = { id: crypto.randomUUID(), title: reference.title, videoId: reference.videoId, mode, mime: recorder.mimeType, created: Date.now(), seconds: 0, bytes: 0, complete: false, balance: mix.settings };
-    const a = { recorder, context, mic, mix, destination, buffer, meta, chunks: [], queue: Promise.resolve(), count: 0, elapsed: 0, since: null, backing: null, error: null };
+    const meta = { id: crypto.randomUUID(), title: reference.title, videoId: reference.videoId, mode, mime: recorder.mimeType, created: Date.now(), seconds: 0, bytes: 0, complete: false, balance: mix.settings, stems };
+    const a = { recorder, context, mic, mix, destination, buffers, meta, chunks: [], queue: Promise.resolve(), count: 0, elapsed: 0, since: null, backing: [], error: null };
     active = a; controls();
     recorder.ondataavailable = event => {
       if (!event.data.size) return;
@@ -93,7 +110,7 @@ export function createSingerRecorder(options) {
       a.queue = a.queue.then(()=>store.save(snapshot,event.data,index)).catch(error => { a.error = error; status('自動保存失敗，停止後請下載備份：' + error.message); });
     };
     recorder.onerror = event => { a.error = event.error || new Error('錄音中斷'); stop(); };
-    status('錄音已就緒，影片開始播放時同步錄製。');
+    status(`錄音已就緒${mode === 'mix' ? (stems.includes('backing') ? ' · 已載入伴奏＋和音' : ' · 已載入伴奏（此版本無獨立和音）') : ''}，影片開始播放時同步錄製。`);
   }
   function elapsed(a) { return a.elapsed + (a.since === null ? 0 : (performance.now()-a.since)/1000); }
   function playerState(state, time) {
@@ -102,7 +119,7 @@ export function createSingerRecorder(options) {
       if (a.recorder.state === 'inactive') a.recorder.start(1000);
       else if (a.recorder.state === 'paused') a.recorder.resume();
       if (a.since === null) a.since = performance.now();
-      syncBacking(a,time); status(`● 錄音中 · ${a.meta.mode === 'mix' ? '歌聲＋伴奏' : '只有歌聲'}（自動保存於此瀏覽器）`);
+      syncBacking(a,time); status(`● 錄音中 · ${a.meta.mode === 'mix' ? (a.meta.stems.includes('backing') ? '歌唱者＋配樂／和音' : '歌唱者＋配樂（無獨立和音）') : '歌唱者'}（自動保存於此瀏覽器）`);
     } else if (state === 0) { stop(); }
     else {
       if (a.since !== null) { a.elapsed = elapsed(a); a.since = null; }
@@ -143,7 +160,7 @@ export function createSingerRecorder(options) {
     if (p?.getPlayerState?.() === 1) {
       syncBacking(a,p.getCurrentTime());
       const levels = a.mix.update();
-      $('recording-balance-status').textContent = `${a.meta.balance.manual ? '手動＋自動微調' : '自動平衡'} · 人聲修正 ${levels.voiceDb.toFixed(1)} dB${a.meta.mode==='mix' ? ` · 伴奏修正 ${levels.backingDb.toFixed(1)} dB` : ''} · 輸出峰值保護開啟`;
+      $('recording-balance-status').textContent = `${a.meta.balance.manual ? '手動＋自動微調' : '自動平衡'} · 人聲修正 ${levels.voiceDb.toFixed(1)} dB${a.meta.mode==='mix' ? ` · 配樂／和音修正 ${levels.backingDb.toFixed(1)} dB` : ''} · 輸出峰值保護開啟`;
     }
   }, 100);
   $('recording-refresh').addEventListener('click',()=>render().catch(error=>status(error.message)));
