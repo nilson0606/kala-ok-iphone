@@ -62,6 +62,8 @@ try {
   });
   await page.goto(site+'/');
   await page.locator('#pitch-method').selectOption('yin'); // This scenario uses a saved YIN fixture.
+  await page.locator('#separation-method').selectOption('single');
+  await page.locator('#separation-model').selectOption('demucs');await page.locator('#vocal-mode').selectOption('all');
   await page.evaluate(async()=>{
     const script=document.querySelector('script[src*="app."]').src;
     const {RecordingStore}=await import(new URL('recording-store.mjs',script));

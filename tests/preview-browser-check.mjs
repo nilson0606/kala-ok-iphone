@@ -83,11 +83,14 @@ try {
     await route.fulfill({json:value,headers:{'Access-Control-Allow-Origin':site}});
   });
   await page.goto(site+'/');
-  assert.equal(await page.locator('#separation-method').inputValue(),'single');
-  assert.equal(await page.locator('#vocal-mode').inputValue(),'all');
-  assert.equal(await page.locator('#separation-model').inputValue(),'demucs');
+  assert.equal(await page.locator('#separation-method').inputValue(),'residual');
+  assert.equal(await page.locator('#vocal-mode').inputValue(),'lead');
+  assert.equal(await page.locator('#separation-model').inputValue(),'mel-roformer');
   assert.equal(await page.locator('#pitch-method').inputValue(),'rmvpe');
+  assert.equal(await page.locator('#clip-seconds').inputValue(),'0');assert.ok(await page.locator('#keep-preview').isChecked());
   await page.locator('#pitch-method').selectOption('yin'); // Exercise the legacy fixtures explicitly.
+  await page.locator('#separation-method').selectOption('single');
+  await page.locator('#separation-model').selectOption('demucs');await page.locator('#vocal-mode').selectOption('all');
   await page.locator('#preview-panel summary').click();
   assert.ok(await page.locator('#lead-preview-buttons').isHidden());
   assert.match(await page.locator('#preview-status').textContent(),/先載入歌曲/);

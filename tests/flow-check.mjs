@@ -55,6 +55,8 @@ try {
   });
   await page.goto('http://localhost:4173/');
   await page.locator('#pitch-method').selectOption('yin'); // This scenario uses a saved YIN fixture.
+  await page.locator('#separation-method').selectOption('single');
+  await page.locator('#separation-model').selectOption('demucs');await page.locator('#vocal-mode').selectOption('all');
   assert.equal(await page.locator('#score-range').inputValue(),'performed');
   assert.equal(await page.locator('#score-difficulty').inputValue(),'standard');
   // Existing complete-song coverage scenarios explicitly opt into the full range.

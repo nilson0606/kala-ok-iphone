@@ -20,7 +20,7 @@ export async function seekPlayerToStart(player, cancelled = () => false, timeout
 
 export function createKaraokeSession(options) {
   let reference = null, displayReference = null, excluded = [], maskBusy = false, masksSupported = false, take = null, jobId = null, token = null, generation = 0, timer;
-  let requestedVocalMode = 'all', requestedModel = 'demucs', requestedPitch = $('pitch-method').value, requestedMethod = 'single';
+  let requestedVocalMode = $('vocal-mode').value, requestedModel = $('separation-model').value, requestedPitch = $('pitch-method').value, requestedMethod = $('separation-method').value;
   const methodName = method => method === 'residual' ? '伴奏二次分離＋反向相減' : '單次分離';
   const modelName = model => ({ demucs: 'Demucs／htdemucs', 'bs-roformer': 'BS-RoFormer／Viperx 1297', 'mel-roformer': 'Mel-Band RoFormer／Kim 人聲' }[model] || 'Demucs／htdemucs');
   let phase = 'idle', loadedVideo = null, lastProgress = 0, rangeComplete = false;
