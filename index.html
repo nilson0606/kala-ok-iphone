@@ -148,6 +148,7 @@
     <label for="post-delay">歌聲延時校正（毫秒）</label><input id="post-delay" type="number" min="-2000" max="2000" step="10" value="0">
     <p class="help">正值：歌聲晚到，將歌聲提前；負值：歌聲太早，將歌聲延後。填入總校正量，不是累加；配樂與和音不移動。初始值沿用這次演唱開始時的時間補償。</p>
     <div class="button-row"><button id="post-rescore" type="button" disabled>1. 調延時重新評分</button><button id="post-remix" type="button" disabled>2. 調延時重新合成</button><button id="post-mp3" type="button" class="secondary" disabled>3. 轉 MP3 並下載</button></div>
+    <p class="help"><button id="post-diagnostic" type="button" class="secondary" disabled>下載這筆評分診斷</button> 包含這筆原始錄音、乾淨歌聲、時間位置與評分基準；只下載到本機，供檢查對齊問題。</p>
     <p id="post-score" class="score-title" role="status"></p><p id="post-status" class="status" role="status">新版錄音會保存乾淨歌聲與評分資料，後處理只在本機進行。</p>
     <audio id="post-audio" controls hidden></audio>
     <p class="help">重新評分沿用當次基準、遮罩及評分設定，結果保存於這筆錄音。重新合成會另存一筆，可試聽後再轉 MP3；原錄音保留。配樂／和音需歌曲庫中的同版本音軌。舊錄音若沒有乾淨歌聲及時間資料，只能轉 MP3，不能單獨校正歌聲。選「不保存錄音」時不保留後處理資料。</p>

@@ -34,6 +34,7 @@ export function createRecordingPost({store,stop,pause}) {
   function clearAudio(){const a=$('post-audio');a.pause();a.removeAttribute('src');a.load();a.hidden=true;if(url)URL.revokeObjectURL(url);url=null;}
   function controls(){
     const editable=!!(selected?.complete&&selected.rawBytes&&selected.post?.segments?.length);
+    $('post-diagnostic').disabled=busy||!editable;
     $('post-recording').disabled=busy;$('post-delay').disabled=busy||!editable;
     $('post-rescore').disabled=busy||!editable;$('post-remix').disabled=busy||!editable;$('post-mp3').disabled=busy||!selected;
   }
@@ -69,6 +70,20 @@ export function createRecordingPost({store,stop,pause}) {
       status('已另存校正後錄音，請按下方播放鍵試聽；可按「轉 MP3 並下載」。原錄音保留，可選回它再調整。');
       window.dispatchEvent(new Event('recording-post-saved'));
     }finally{await context.close();}
+  }));
+  $('post-diagnostic').addEventListener('click',()=>run(async row=>{
+    status('正在打包這筆錄音的本機診斷資料…');
+    async function audioPart(track){
+      const blob=await store.blob(row,track);
+      if(blob.size>128*1024*1024)throw new Error('這筆錄音超過診斷匯出大小限制，請改用較短錄音。');
+      const bytes=new Uint8Array(await blob.arrayBuffer()),parts=[];
+      for(let i=0;i<bytes.length;i+=32768)parts.push(String.fromCharCode(...bytes.subarray(i,i+32768)));
+      return {mime:blob.type,base64:btoa(parts.join(''))};
+    }
+    const value={format:'karaoke-recording-diagnostic',version:1,exportedAt:new Date().toISOString(),appBuild:document.querySelector('meta[name="app-build"]')?.content,recording:row,audio:{voice:await audioPart('voice'),mix:await audioPart('mix')}};
+    const blob=new Blob([JSON.stringify(value)],{type:'application/json'}),href=URL.createObjectURL(blob),a=document.createElement('a');
+    a.href=href;a.download=`karaoke-diagnostic-${row.id}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(href),60000);
+    status('診斷檔已下載到本機。這份檔案含本次歌聲，請提供此檔或其本機路徑以檢查，不需重唱。');
   }));
   $('post-mp3').addEventListener('click',()=>run(async row=>{
     status('正在本機轉成 MP3…');const blob=await store.blob(row),response=await localRequest('/recordings/mp3',blob),mp3=await response.blob();

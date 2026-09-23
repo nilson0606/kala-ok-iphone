@@ -137,6 +137,11 @@ try {
   assert.ok(rescored.post.audioAnalysis.samples.some(s=>s.hz>435&&s.hz<445));
   await page.locator('#post-delay').fill('175');await page.locator('#post-rescore').click();await page.waitForFunction(()=>document.querySelector('#post-score').textContent.includes('校正 175 ms'));
   assert.match(await page.locator('#post-score').textContent(),/同音檔 0 ms 進拍/);
+  const diagnosticDownload=page.waitForEvent('download');await page.locator('#post-diagnostic').click();
+  const diagnostic=await diagnosticDownload,stream=await diagnostic.createReadStream(),chunks=[];for await(const chunk of stream)chunks.push(chunk);
+  const report=JSON.parse(Buffer.concat(chunks).toString());assert.equal(report.format,'karaoke-recording-diagnostic');assert.equal(report.recording.id,harmonyRecord.id);
+  assert.ok(Buffer.from(report.audio.voice.base64,'base64').length>1000);assert.ok(Buffer.from(report.audio.mix.base64,'base64').length>1000);
+  await page.waitForFunction(()=>document.querySelector('#post-status').textContent.includes('診斷檔已下載'));
   await page.locator('#post-remix').click();await page.waitForFunction(()=>document.querySelector('#post-status').textContent.includes('已另存校正後錄音'));
   const remixed=(await records()).find(r=>r.parentId===harmonyRecord.id);assert.ok(remixed&&remixed.mime==='audio/wav');
   const remixedAudio=await spectrum(remixed.id);assert.ok(remixedAudio.voice>.02&&remixedAudio.backing>.02&&remixedAudio.harmony>.02,JSON.stringify(remixedAudio));
