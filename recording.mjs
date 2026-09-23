@@ -1,11 +1,27 @@
+import { createRecordingMix, mixSettings } from './recording-mix.mjs';
 import { RecordingStore } from './recording-store.mjs';
 const $ = id => document.getElementById(id);
 export function createSingerRecorder(options) {
   const store = new RecordingStore();
   try { const saved = localStorage.getItem('karaoke.recording-mode.v1'); if (['voice','mix','off'].includes(saved)) $('recording-mode').value = saved; } catch {}
   let active = null, operation = 0, stopping = Promise.resolve(), previewURL = null;
+  try {
+    const saved = mixSettings(JSON.parse(localStorage.getItem('karaoke.recording-balance.v1') || '{}'));
+    $('recording-manual').checked = saved.manual; $('recording-voice-level').value = saved.voice; $('recording-backing-level').value = saved.backing;
+  } catch {}
+  function balanceSettings() { return mixSettings({manual:$('recording-manual').checked,voice:Number($('recording-voice-level').value),backing:Number($('recording-backing-level').value)}); }
   const status = text => { $('recording-status').textContent = text; };
-  function controls() { $('recording-mode').disabled = !!active; }
+  function controls() {
+    const mode=$('recording-mode').value, manual=$('recording-manual').checked;
+    $('recording-mode').disabled = !!active;
+    $('recording-manual').disabled = !!active || mode==='off';
+    $('recording-voice-level').disabled = !!active || mode==='off' || !manual;
+    $('recording-backing-level').disabled = !!active || mode!=='mix' || !manual;
+    $('recording-voice-value').textContent = $('recording-voice-level').value+'%';
+    $('recording-backing-value').textContent = $('recording-backing-level').value+'%';
+    if (!active) $('recording-balance-status').textContent = mode==='off' ? '不保存錄音，音量平衡不啟動。' : `${manual ? '手動＋自動微調' : '自動平衡'} · 只影響錄音，不影響評分；每輪開始前設定。`;
+    $('recording-balance-help').textContent = mode==='off' ? '已關閉錄音，音量平衡不啟動。' : manual ? '手動＋自動：依你的音量設定，兩路各自最多微調 ±3 dB。0% 保持靜音；每輪開始後固定設定。' : '自動平衡：依人聲及伴奏音量平滑調整，各自最多修正 ±6 dB。下方手動音量不參與；每輪開始後固定設定。';
+  }
   function clearPreview() {
     const audio = $('recording-audio'); audio.pause(); audio.removeAttribute('src'); audio.load(); audio.hidden = true;
     if (previewURL) URL.revokeObjectURL(previewURL); previewURL = null;
@@ -16,7 +32,7 @@ export function createSingerRecorder(options) {
     for (const row of rows) {
       const li = document.createElement('li'), label = document.createElement('strong'), info = document.createElement('small'), buttons = document.createElement('div');
       label.textContent = row.title;
-      info.textContent = `${new Date(row.created).toLocaleString()} · ${row.mode === 'mix' ? '歌聲＋伴奏' : '只有歌聲'} · ${Math.round(row.seconds)} 秒${row.complete ? '' : ' · 未正常結束，保留已儲存片段'}`;
+      info.textContent = `${new Date(row.created).toLocaleString()} · ${row.mode === 'mix' ? '歌聲＋伴奏' : '只有歌聲'}${row.balance ? (row.balance.manual ? ' · 手動＋自動' : ' · 自動平衡') : ''} · ${Math.round(row.seconds)} 秒${row.complete ? '' : ' · 未正常結束，保留已儲存片段'}`;
       buttons.className = 'button-row';
       for (const [text, action] of [
         ['試聽', async () => { await stop(); options.pausePlayer(); clearPreview(); previewURL = URL.createObjectURL(await store.blob(row)); $('recording-audio').src = previewURL; $('recording-audio').hidden = false; await $('recording-audio').play(); }],
@@ -41,7 +57,7 @@ export function createSingerRecorder(options) {
     const expected = a.anchorTime + a.context.currentTime - a.anchorContext;
     if (a.backing && Math.abs(expected - time) < .15) return;
     stopBacking(a);
-    const node = a.context.createBufferSource(); node.buffer = a.buffer; node.connect(a.backingGain); node.start(0,time);
+    const node = a.context.createBufferSource(); node.buffer = a.buffer; node.connect(a.mix.input); node.start(0,time);
     a.backing = node; a.anchorTime = time; a.anchorContext = a.context.currentTime;
   }
   async function prepare(reference, loadBacking) {
@@ -60,16 +76,15 @@ export function createSingerRecorder(options) {
       buffer = await context.decodeAudioData(await loadBacking());
     }
     if (request !== operation || options.context() !== context) throw new Error('錄音準備已取消。');
-    const destination = context.createMediaStreamDestination(), mic = context.createMediaStreamSource(stream), micGain = context.createGain(), backingGain = context.createGain();
-    // Only the microphone reaches pitch analysis; backing goes exclusively to the recorder.
-    micGain.gain.value = mode === 'mix' ? .7 : 1; backingGain.gain.value = .3;
-    mic.connect(micGain); micGain.connect(destination); backingGain.connect(destination);
+    const destination = context.createMediaStreamDestination(), mic = context.createMediaStreamSource(stream);
+    // This separate recording branch never changes the input used for pitch scoring.
+    const mix = createRecordingMix(context,mic,destination,{mode,settings:balanceSettings(),voiced:()=>options.voiced?.() === true});
     const mime = ['audio/webm;codecs=opus','audio/webm','audio/mp4'].find(value => MediaRecorder.isTypeSupported(value));
     let recorder;
     try { recorder = new MediaRecorder(destination.stream, mime ? {mimeType:mime} : {}); }
-    catch (error) { mic.disconnect(); micGain.disconnect(); backingGain.disconnect(); destination.stream.getTracks().forEach(t=>t.stop()); throw error; }
-    const meta = { id: crypto.randomUUID(), title: reference.title, videoId: reference.videoId, mode, mime: recorder.mimeType, created: Date.now(), seconds: 0, bytes: 0, complete: false };
-    const a = { recorder, context, mic, micGain, backingGain, destination, buffer, meta, chunks: [], queue: Promise.resolve(), count: 0, elapsed: 0, since: null, backing: null, error: null };
+    catch (error) { mix.disconnect(); destination.stream.getTracks().forEach(t=>t.stop()); throw error; }
+    const meta = { id: crypto.randomUUID(), title: reference.title, videoId: reference.videoId, mode, mime: recorder.mimeType, created: Date.now(), seconds: 0, bytes: 0, complete: false, balance: mix.settings };
+    const a = { recorder, context, mic, mix, destination, buffer, meta, chunks: [], queue: Promise.resolve(), count: 0, elapsed: 0, since: null, backing: null, error: null };
     active = a; controls();
     recorder.ondataavailable = event => {
       if (!event.data.size) return;
@@ -106,7 +121,7 @@ export function createSingerRecorder(options) {
     });
     stopping = (async () => {
       await ended; await a.queue;
-      a.mic.disconnect(); a.micGain.disconnect(); a.backingGain.disconnect(); a.destination.stream.getTracks().forEach(t=>t.stop());
+      a.mix.disconnect(); a.destination.stream.getTracks().forEach(t=>t.stop());
       if (!wasStarted || !a.meta.bytes) { status('未開始播放，沒有保存空白錄音。'); return; }
       a.meta.seconds = a.elapsed; a.meta.complete = true;
       try {
@@ -125,10 +140,19 @@ export function createSingerRecorder(options) {
   const timer = setInterval(() => {
     const a = active; if (!a || a.recorder.state !== 'recording') return;
     const p = options.player();
-    if (p?.getPlayerState?.() === 1) syncBacking(a,p.getCurrentTime());
+    if (p?.getPlayerState?.() === 1) {
+      syncBacking(a,p.getCurrentTime());
+      const levels = a.mix.update();
+      $('recording-balance-status').textContent = `${a.meta.balance.manual ? '手動＋自動微調' : '自動平衡'} · 人聲修正 ${levels.voiceDb.toFixed(1)} dB${a.meta.mode==='mix' ? ` · 伴奏修正 ${levels.backingDb.toFixed(1)} dB` : ''} · 輸出峰值保護開啟`;
+    }
   }, 100);
   $('recording-refresh').addEventListener('click',()=>render().catch(error=>status(error.message)));
-  $('recording-mode').addEventListener('change',()=>{ try { localStorage.setItem('karaoke.recording-mode.v1',$('recording-mode').value); } catch {} status($('recording-mode').value === 'off' ? '不保存錄音；從頭開始唱只收音評分。' : '按「從頭開始唱」後自動錄製；停止收音、結算或播完時保存。'); });
+  $('recording-mode').addEventListener('change',()=>{ controls(); try { localStorage.setItem('karaoke.recording-mode.v1',$('recording-mode').value); } catch {} status($('recording-mode').value === 'off' ? '不保存錄音；從頭開始唱只收音評分。' : '按「從頭開始唱」後自動錄製；停止收音、結算或播完時保存。'); });
+  for(const id of ['recording-manual','recording-voice-level','recording-backing-level']) $(id).addEventListener('input',()=>{
+    controls(); try {localStorage.setItem('karaoke.recording-balance.v1',JSON.stringify(balanceSettings()));} catch {}
+    $('recording-balance-status').textContent = $('recording-manual').checked ? '下一輪使用手動比例＋自動微調；只影響錄音。' : '下一輪使用自動平衡；只影響錄音。';
+  });
+  controls();
   window.addEventListener('pagehide',()=>{stop();clearInterval(timer);clearPreview();});
   render().catch(error=>status('瀏覽器錄音儲存不可用：'+error.message));
   return { prepare, stop, playerState, clearPreview };

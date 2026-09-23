@@ -179,3 +179,11 @@ RMVPE 驗證：33 項 JavaScript、24 項 Python 測試；Edge／Chrome 的正�
 `recording-store.mjs` 將每秒音訊 chunk 與 metadata 以 IndexedDB transaction 原子寫入，完整結束標記 complete；崩潰時保留已提交片段。每段有獨立 ID，不覆蓋重唱前的錄音。空間或寫入失敗時保留記憶體音訊並提供下載；錄音與 localStorage 分數、歌曲庫彼此獨立。分數勾選依清單位置區分同名紀錄，刪除前核對已渲染快照，避免另一分頁修改後錯刪。
 
 驗證：36 項 JavaScript 測試通過。Edge／Chrome 使用實際 MediaRecorder + IndexedDB，440 Hz 麥克風與 660 Hz 伴奏解碼比對，確認 voice 不含伴奏、mix 同時包含兩者；測過每秒落盤、暂停續播、跳出伴奏範圍、停止收音後結算不重複、播完自動保存、重唱另存、off 不建立 MediaRecorder 並記住選擇、儲存額度不足時下載備份、重新載入後保留、下載及個別刪除。同名分數勾選刪除／全清除不影響錄音；原評分流程與分離試聽的瀏覽器回歸測試也通過。
+
+### 錄音自動平衡與手動比例
+
+預設未勾選「手動設定比例＋自動微調」時自動平衡；勾選後，voice/backing 0–100% 各自作為 base gain，兩路各限 ±3 dB 修正。未勾選忽略 slider，採固定 base 與各路 ±6 dB 修正；選項在每輪開始時固定並保存於錄音 metadata，瀏覽器記住偏好。0% 始終靜音，voice-only 不連伴奏，off 不建立錄音器或混音圖。
+
+`recording-mix.mjs` 在獨立錄音分支計算兩路 RMS，以 0.18 為目標電平；麥克風需現有音高偵測報告 voiced 且 RMS > 0.008 才做增益修正，不對低電平或未發聲訊號自動增強。AudioParam 平滑增益（下降 0.3 秒、上升 0.8 秒時間常數）；混音經 compressor 與 ±0.98 峰值上限後進 MediaRecorder。此分支不更改收音 constraints，不修改評分用原始樣本或音高值。
+
+驗證：39 項 JavaScript 測試通過；Edge／Chrome 實際錄音確認預設自動、手動 60% 人聲／80% 伴奏的可聽比例與即時修正、偏好保存、off 不建立錄音器，以及既有錄音保存／刪除功能。離線 Web Audio 雙路超載測試的輸出峰值低於 0.98；純函式測試涵蓋 ±6／±3 dB 界線、靜音維持為零、低電平／無穩定歌聲不增強。

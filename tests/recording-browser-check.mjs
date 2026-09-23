@@ -78,6 +78,8 @@ try {
   await page.locator('#url').fill('https://www.youtube.com/watch?v=M7lc1UVf-VE');await page.locator('#clip-seconds').selectOption('30');await page.locator('#prepare-song').click();
   await page.waitForFunction(()=>document.querySelector('#prepare-status').textContent.startsWith('已就緒'));
   assert.equal(await page.locator('#recording-mode').inputValue(),'voice');
+  assert.equal(await page.locator('#recording-manual').isChecked(),false);
+  assert.ok(await page.locator('#recording-voice-level').isDisabled());
   // Testing the microphone alone must not store audio.
   await page.locator('#mic-start').click();await delay(500);assert.equal((await records()).length,0);
   await start();await delay(1600);
@@ -90,15 +92,21 @@ try {
   await page.locator('#finish-song').click();await page.waitForFunction(()=>document.querySelector('#score-status').textContent.includes('已結算'));
   assert.equal((await records()).length,1,'manual scoring after stopping must not duplicate recording');
   await page.locator('#recording-mode').selectOption('mix');
-  await start();await delay(1000);
+  await page.locator('#recording-manual').check();
+  await page.locator('#recording-voice-level').fill('60');await page.locator('#recording-backing-level').fill('80');
+  assert.match(await page.locator('#recording-balance-help').textContent(),/±3 dB/);
+
+  await start();assert.ok(await page.locator('#recording-manual').isDisabled());await delay(1000);
   await page.evaluate(()=>fixturePlayer.pauseVideo());await delay(900);
   const pauseSeconds=(await records())[0].seconds;
+  const balanceStatus=await page.locator('#recording-balance-status').textContent();assert.match(balanceStatus,/人聲修正.*伴奏修正/);
   await page.evaluate(()=>fixturePlayer.seekTo(10));await delay(60);
   await page.evaluate(()=>fixturePlayer.playVideo());await delay(900);
   await page.evaluate(()=>fixturePlayer.endVideo());await waitRecords(2);
   await page.waitForFunction(()=>document.querySelector('#score-status').textContent.includes('已結算'));
   const mixed=(await records()).find(x=>x.mode==='mix'),mixedAudio=await spectrum(mixed.id);
-  assert.ok(mixedAudio.voice>.03&&mixedAudio.backing>.03,JSON.stringify(mixedAudio));
+  assert.ok(mixedAudio.voice>.03&&mixedAudio.backing>mixedAudio.voice*1.1,JSON.stringify(mixedAudio));
+  assert.deepEqual(mixed.balance,{manual:true,voice:60,backing:80});assert.equal(voice.balance.manual,false);
   assert.ok(mixed.seconds<2.6&&mixed.seconds>1.5,JSON.stringify(mixed));
   const afterSeek=await spectrum(mixed.id,1.3);assert.ok(afterSeek.voice>.03&&afterSeek.backing<.01,JSON.stringify(afterSeek));
   assert.ok(backingRequests>0);assert.ok(pauseSeconds<1.8);
@@ -142,9 +150,17 @@ try {
   assert.ok((await downloaded).suggestedFilename().endsWith('.webm'));
   // Reload preserves all recordings; delete only removes the selected recording.
   await page.locator('#recording-mode').selectOption('off');
-  await page.reload();assert.equal(await page.locator('#recording-mode').inputValue(),'off');await page.locator('#recordings-panel summary').click();await page.waitForFunction(()=>document.querySelectorAll('#recording-list li button').length===12);
+  await page.reload();assert.equal(await page.locator('#recording-mode').inputValue(),'off');assert.ok(await page.locator('#recording-manual').isChecked());assert.equal(await page.locator('#recording-voice-level').inputValue(),'60');assert.equal(await page.locator('#recording-backing-level').inputValue(),'80');await page.locator('#recordings-panel summary').click();await page.waitForFunction(()=>document.querySelectorAll('#recording-list li button').length===12);
   await page.locator('#recording-list').getByRole('button',{name:'刪除',exact:true}).first().click();await page.waitForFunction(()=>document.querySelectorAll('#recording-list li button').length===9);
   await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  const peak=await page.evaluate(async()=>{
+    const script=document.querySelector('script[src*="app."]').src;
+    const {createRecordingMix}=await import(new URL('recording-mix.mjs',script));
+    const ctx=new OfflineAudioContext(1,48000,48000),mic=ctx.createConstantSource(),backing=ctx.createConstantSource();mic.offset.value=1;backing.offset.value=1;
+    const mix=createRecordingMix(ctx,mic,ctx.destination,{mode:'mix',settings:{manual:true,voice:100,backing:100},voiced:()=>true});
+    backing.connect(mix.input);mic.start();backing.start();const out=await ctx.startRendering();
+    return out.getChannelData(0).reduce((peak,x)=>Math.max(peak,Math.abs(x)),0);
+  });assert.ok(peak<=.981&&peak>.5,peak);
   assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({voiceAudio,mixedAudio,incrementalSave:true,pauseResume:true,seekBeyondBacking:true,quotaRecovery:true,emptyRecordingAvoided:true,stopRewind:true,automaticFinish:true,restartSeparate:true,off:true,selectiveAndAllScoreDeletion:true,persistence:true,download:true,deleteOne:true,errors}));
+  console.log(JSON.stringify({voiceAudio,mixedAudio,balanceStatus,peak,manualAutoRatio:true,defaultAuto:true,incrementalSave:true,pauseResume:true,seekBeyondBacking:true,quotaRecovery:true,emptyRecordingAvoided:true,stopRewind:true,automaticFinish:true,restartSeparate:true,off:true,selectiveAndAllScoreDeletion:true,persistence:true,download:true,deleteOne:true,errors}));
 } finally {await browser?.close();server.kill();await rm(fixture,{force:true});}

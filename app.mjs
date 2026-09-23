@@ -3,7 +3,7 @@ import { createCalibration } from './calibration.mjs';
 import { createKaraokeSession } from './session.mjs';
 const $ = id => document.getElementById(id);
 let player, playerReady, apiPromise, stream, context, analyser, samples, micTimer;
-let calibration, micStartPromise;
+let calibration, micStartPromise, micPitch = null;
 let generation = 0, history = [], beatTimer, beatStart, probeController;
 const supported = window.isSecureContext && !!navigator.mediaDevices?.getUserMedia;
 $('environment').textContent = supported ? '桌機收音環境就緒。可測試麥克風與播放器；未取得歌曲基準前不計分。' : '無法開啟麥克風。請用桌機 Chrome／Edge 開啟 HTTPS 網址，並確認瀏覽器有收音權限。';
@@ -101,7 +101,7 @@ async function stopMic(message = '收音已停止，麥克風已釋放；錄音�
   generation++; clearInterval(micTimer); calibration?.cancel();
   const recordingEnd = singing.stopRecording();
   const oldStream = stream, oldContext = context;
-  stream = context = analyser = samples = null; history = [];
+  stream = context = analyser = samples = null; micPitch = null; history = [];
   oldStream?.getTracks().forEach(t => t.stop());
   if (oldContext) oldContext.onstatechange = null;
   $('mic-start').disabled = !supported; $('mic-stop').disabled = true;
@@ -152,6 +152,7 @@ function readMic() {
   if (!analyser || !samples || context?.state !== 'running') return;
   analyser.getFloatTimeDomainData(samples);
   const result = stream.getAudioTracks()[0]?.muted ? { hz: null, rms: 0 } : detectPitch(samples, context.sampleRate);
+  micPitch = result.hz;
   const note = noteOf(result.hz), now = performance.now() / 1000;
   history.push({ time: now, midi: note?.midi ?? null }); history = history.filter(p => now - p.time <= 8);
   calibration?.sample(now - analyser.fftSize / (2 * context.sampleRate), result.hz);
@@ -260,7 +261,7 @@ $('local-check').addEventListener('click', async () => {
   } finally { clearTimeout(timer); button.disabled = false; }
 });
 
-const singing = createKaraokeSession({ context: () => context, stream: () => stream, player: () => player, micReady: () => !!stream && context?.state === 'running', stopMic: () => stopMic(), startMic, stopBeats, loadVideo: () => loadVideo(), cancelCalibration: () => calibration?.cancel() });
+const singing = createKaraokeSession({ voiced: () => micPitch !== null, context: () => context, stream: () => stream, player: () => player, micReady: () => !!stream && context?.state === 'running', stopMic: () => stopMic(), startMic, stopBeats, loadVideo: () => loadVideo(), cancelCalibration: () => calibration?.cancel() });
 
 calibration = createCalibration({ context: () => context, micReady: () => !!stream && context?.state === 'running', beforeStart: () => singing.pauseForCalibration() });
 

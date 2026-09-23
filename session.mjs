@@ -26,7 +26,7 @@ export function createKaraokeSession(options) {
   let phase = 'idle', loadedVideo = null, lastProgress = 0, rangeComplete = false;
   let libraryLocation = null, locationBusy = false;
   let previewUrl = null, previewRequest = null, previewSerial = 0, restartToken = 0;
-  const recording = createSingerRecorder({context: options.context, stream: options.stream, player: options.player, pausePlayer: () => { options.player()?.pauseVideo?.(); stopPreview(); }});
+  const recording = createSingerRecorder({voiced: options.voiced, context: options.context, stream: options.stream, player: options.player, pausePlayer: () => { options.player()?.pauseVideo?.(); stopPreview(); }});
   const message = text => { $('score-status').textContent = text; };
   function updateMaskView() { displayReference = reference ? applyMasks(reference) : null; excluded = reference ? maskedCells(reference) : []; }
   const maskEditor = createMaskEditor({
