@@ -23,10 +23,10 @@ export class RecordingStore {
       work(tx, value => { result = value; });
     });
   }
-  save(meta, chunk, index) {
+  save(meta, chunk, index, track = 'mix') {
     return this.transaction('readwrite', tx => {
       tx.objectStore('takes').put(meta);
-      if (chunk) tx.objectStore('chunks').put({ id: meta.id, index, blob: chunk });
+      if (chunk) tx.objectStore('chunks').put({ id: track === 'voice' ? meta.id + ':voice' : meta.id, index, blob: chunk });
     });
   }
   list() {
@@ -34,15 +34,17 @@ export class RecordingStore {
       tx.objectStore('takes').getAll().onsuccess = event => done(event.target.result.filter(x => x.bytes > 0).sort((a,b) => b.created - a.created));
     });
   }
-  blob(meta) {
+  blob(meta, track = 'mix') {
+    const id = track === 'voice' ? meta.id + ':voice' : meta.id;
     return this.transaction('readonly', (tx, done) => {
-      tx.objectStore('chunks').getAll(IDBKeyRange.bound([meta.id,0],[meta.id,Number.MAX_SAFE_INTEGER])).onsuccess = event => done(new Blob(event.target.result.map(x => x.blob), { type: meta.mime }));
+      tx.objectStore('chunks').getAll(IDBKeyRange.bound([id,0],[id,Number.MAX_SAFE_INTEGER])).onsuccess = event => done(new Blob(event.target.result.map(x => x.blob), { type: meta.mime }));
     });
   }
   delete(id) {
     return this.transaction('readwrite', tx => {
       tx.objectStore('takes').delete(id);
       tx.objectStore('chunks').delete(IDBKeyRange.bound([id,0],[id,Number.MAX_SAFE_INTEGER]));
+      tx.objectStore('chunks').delete(IDBKeyRange.bound([id+':voice',0],[id+':voice',Number.MAX_SAFE_INTEGER]));
     });
   }
 }

@@ -49,7 +49,7 @@ test('helper enforces setup, auth and idle-only changes; selected library surviv
   }
   async function stop() { if (child && child.exitCode === null) { const exited = new Promise(resolve => child.once('exit', resolve)); child.kill(); await exited; } }
   try {
-    for (const file of ['helper-local.mjs', 'local-jobs.mjs', 'local-library.mjs', 'library-location.mjs', 'scoring.mjs']) await copyFile(new URL('../' + file, import.meta.url), path.join(dir, file));
+    for (const file of ['helper-local.mjs', 'local-jobs.mjs', 'recording-export.mjs', 'local-library.mjs', 'library-location.mjs', 'scoring.mjs']) await copyFile(new URL('../' + file, import.meta.url), path.join(dir, file));
     // Bind a random test port without exposing the helper outside loopback.
     const helper = path.join(dir, 'helper-local.mjs');
     let source = await readFile(helper, 'utf8');
@@ -57,6 +57,8 @@ test('helper enforces setup, auth and idle-only changes; selected library surviv
     await writeFile(helper, source);
     await start();
     assert.equal((await request('/library/location', 'GET', undefined, false)).status, 403);
+    assert.equal((await request('/recordings/mp3','POST',{},false)).status,403);
+    assert.equal((await request('/recordings/mp3','POST',{})).status,400);
     assert.equal((await (await request('/library/location')).json()).configured, false);
     assert.equal((await request('/jobs', 'POST', { videoId: 'M7lc1UVf-VE', seconds: 30 })).status, 409);
     const first = path.join(dir, 'first'), second = path.join(dir, 'second');

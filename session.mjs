@@ -428,7 +428,7 @@ export function createKaraokeSession(options) {
         const response = await fetch(BASE + `/library/${reference.cacheId}/${stem}`, {headers: {'X-Karaoke-Token':token}, credentials:'omit', cache:'no-store', signal:AbortSignal.timeout(30000)});
         if (!response.ok) throw new Error('無法取得錄音所需的配樂／和音，請補建試聽音軌或改選歌唱者。');
         return response.arrayBuffer();
-      });
+      }, {allowOctave:$('pitch-mode').value==='octave',rangeMode:$('score-range').value,difficulty:$('score-difficulty').value});
       if (request !== restartToken || !reference || !options.micReady()) { await recording.stop(); return; }
       message('正在同步 YouTube 到 0 秒…');
       await seekPlayerToStart(p, () => request !== restartToken || !reference || !options.micReady());
@@ -465,6 +465,7 @@ export function createKaraokeSession(options) {
   }
   function sample(time, hz) {
     if (!reference || !take || phase !== 'singing' || options.player()?.getPlayerState?.() !== 1) return;
+    recording.sample(time + Number($('offset').value)/1000, hz);
     if (time >= reference.duration) {
       if (!rangeComplete) message('已到本次分析範圍結尾。資料已保留，可停止收音後按「結束並結算」。');
       rangeComplete = true; $('target-note').textContent = '—'; $('live-feedback').textContent = '超出分析範圍，不再計分';

@@ -47,11 +47,12 @@ try {
   const ref=()=>({version:1,videoId:'M7lc1UVf-VE',title:'Recording fixture',cacheId:'M7lc1UVf-VE_30_v1',step:.1,duration:30,rangeSeconds:30,frames:Array(300).fill(440),beats:[],bpm:0,hasPreview,vocalMode});
   await page.route('http://127.0.0.1:4174/**',async route=>{
     const req=route.request(),url=new URL(req.url());let value={};
-    if(url.pathname==='/session')value={token:'fixture',features:['library','library-location','separation-progress','rebuild-song','lead-vocals','score-masks','pitch-methods','separation-models']};
+    if(url.pathname==='/session')value={token:'fixture',features:['library','library-location','separation-progress','rebuild-song','lead-vocals','score-masks','pitch-methods','separation-models','recording-mp3']};
     else if(url.pathname==='/library/location')value={configured:true,path:'C:/fixture'};
     else if(url.pathname==='/library')value={songs:[]};
     else if(url.pathname.endsWith('/backing')) {harmonyRequests++;stemRequests.push('backing');await route.fulfill({status:missingHarmony?404:200,body:missingHarmony?'missing':melData,contentType:'audio/wav',headers:{'Access-Control-Allow-Origin':site}});return;}
     else if(url.pathname.endsWith('/accompaniment')) {backingRequests++;stemRequests.push('accompaniment');await route.fulfill({body:bsData,contentType:'audio/wav',headers:{'Access-Control-Allow-Origin':site}});return;}
+    else if(url.pathname==='/recordings/mp3'){assert.ok(req.postDataBuffer().length>1000);await route.fulfill({body:Buffer.from('ID3fixture'),contentType:'audio/mpeg',headers:{'Access-Control-Allow-Origin':site}});return;}
     else if(req.method()==='DELETE')value={cleared:true};
     else if(req.method()==='POST')value={id:String(++serial).padStart(32,'0')};
     else if(url.pathname.endsWith('/reference'))value=ref();
@@ -69,13 +70,13 @@ try {
   async function waitRecords(count){await page.waitForFunction(async n=>(await recordStore.list()).filter(x=>x.complete).length===n,count);}
   async function start(){await page.locator('#sing-start').click();await page.waitForFunction(()=>document.querySelector('#recording-status').textContent.includes('● 錄音中'));}
   async function delay(ms){await page.waitForTimeout(ms);}
-  async function spectrum(id,offset=.35){return page.evaluate(async ({id,offset})=>{
-    const rows=await recordStore.list(),row=rows.find(x=>x.id===id),blob=await recordStore.blob(row),ctx=new AudioContext();
+  async function spectrum(id,offset=.35,track='mix'){return page.evaluate(async ({id,offset,track})=>{
+    const rows=await recordStore.list(),row=rows.find(x=>x.id===id),blob=await recordStore.blob(row,track),ctx=new AudioContext();
     const audio=await ctx.decodeAudioData(await blob.arrayBuffer()),samples=audio.getChannelData(0),rate=audio.sampleRate;
     const from=Math.floor(rate*offset),length=Math.min(Math.floor(rate*.5),samples.length-from);
     function power(hz){let c=0,s=0;for(let i=0;i<length;i++){c+=samples[from+i]*Math.cos(2*Math.PI*hz*i/rate);s+=samples[from+i]*Math.sin(2*Math.PI*hz*i/rate);}return 2*Math.hypot(c,s)/length;}
     const result={voice:power(440),backing:power(660),harmony:power(880),duration:audio.duration,bytes:blob.size};await ctx.close();return result;
-  },{id,offset});}
+  },{id,offset,track});}
   await page.locator('#url').fill('https://www.youtube.com/watch?v=M7lc1UVf-VE');await page.locator('#clip-seconds').selectOption('30');await page.locator('#prepare-song').click();
   await page.waitForFunction(()=>document.querySelector('#prepare-status').textContent.startsWith('已就緒'));
   assert.equal(await page.locator('#recording-mode').inputValue(),'voice');
@@ -126,7 +127,21 @@ try {
   assert.ok(Math.abs(harmonyAudio.backing/harmonyAudio.harmony-1)<.1,JSON.stringify(harmonyAudio));
   const harmonyAfterSeek=await spectrum(harmonyRecord.id,1.2);
   assert.ok(harmonyAfterSeek.backing>.03&&harmonyAfterSeek.harmony>.03,JSON.stringify(harmonyAfterSeek));
+  const rawVoice=await spectrum(harmonyRecord.id,.35,'voice');assert.ok(rawVoice.voice>.03&&rawVoice.backing<.01&&rawVoice.harmony<.01,JSON.stringify(rawVoice));
+  assert.ok(harmonyRecord.rawBytes>1000&&harmonyRecord.post.samples.length>5);
+  assert.equal(harmonyRecord.post.segments.length,2);
+  await page.locator('#post-recording').selectOption(harmonyRecord.id);await page.locator('#post-delay').fill('100');
+  await page.locator('#post-rescore').click();await page.waitForFunction(()=>document.querySelector('#post-status').textContent.includes('重評完成'));
+  assert.equal((await records()).find(r=>r.id===harmonyRecord.id).postResult.delayMs,100);
+  await page.locator('#post-remix').click();await page.waitForFunction(()=>document.querySelector('#post-status').textContent.includes('已另存校正後錄音'));
+  const remixed=(await records()).find(r=>r.parentId===harmonyRecord.id);assert.ok(remixed&&remixed.mime==='audio/wav');
+  const remixedAudio=await spectrum(remixed.id);assert.ok(remixedAudio.voice>.02&&remixedAudio.backing>.02&&remixedAudio.harmony>.02,JSON.stringify(remixedAudio));
+  assert.ok(await page.locator('#post-audio').isVisible());assert.ok(await page.locator('#post-rescore').isDisabled());
+  const mp3download=page.waitForEvent('download');await page.locator('#post-mp3').click();assert.ok((await mp3download).suggestedFilename().endsWith('.mp3'));
+  await page.waitForFunction(()=>document.querySelector('#post-status').textContent.includes('MP3 已轉換'));
+  await page.evaluate(id=>recordStore.delete(id),remixed.id);
   await page.evaluate(id=>recordStore.delete(id),harmonyRecord.id);
+  assert.equal(await page.evaluate(async row=>(await recordStore.blob(row,'voice')).size,harmonyRecord),0);
   // A missing harmony file must fail before recording instead of silently omitting it.
   missingHarmony=true;const beforeMissing=await page.evaluate(()=>recorderCreated);
   await page.locator('#sing-start').click();await page.waitForFunction(()=>document.querySelector('#score-status').textContent.includes('無法取得錄音所需'));
@@ -172,8 +187,8 @@ try {
   assert.ok((await downloaded).suggestedFilename().endsWith('.webm'));
   // Reload preserves all recordings; delete only removes the selected recording.
   await page.locator('#recording-mode').selectOption('off');
-  await page.reload();assert.equal(await page.locator('#recording-mode').inputValue(),'off');assert.ok(await page.locator('#recording-manual').isChecked());assert.equal(await page.locator('#recording-voice-level').inputValue(),'60');assert.equal(await page.locator('#recording-backing-level').inputValue(),'80');await page.locator('#recordings-panel summary').click();await page.waitForFunction(()=>document.querySelectorAll('#recording-list li button').length===12);
-  await page.locator('#recording-list').getByRole('button',{name:'刪除',exact:true}).first().click();await page.waitForFunction(()=>document.querySelectorAll('#recording-list li button').length===9);
+  await page.reload();assert.equal(await page.locator('#recording-mode').inputValue(),'off');assert.ok(await page.locator('#recording-manual').isChecked());assert.equal(await page.locator('#recording-voice-level').inputValue(),'60');assert.equal(await page.locator('#recording-backing-level').inputValue(),'80');await page.locator('#recordings-panel summary').click();await page.waitForFunction(()=>document.querySelectorAll('#recording-list li button').length===16);
+  await page.locator('#recording-list').getByRole('button',{name:'刪除',exact:true}).first().click();await page.waitForFunction(()=>document.querySelectorAll('#recording-list li button').length===12);
   await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   const peak=await page.evaluate(async()=>{
     const script=document.querySelector('script[src*="app."]').src;
@@ -183,6 +198,20 @@ try {
     backing.connect(mix.input);mic.start();backing.start();const out=await ctx.startRendering();
     return out.getChannelData(0).reduce((peak,x)=>Math.max(peak,Math.abs(x)),0);
   });assert.ok(peak<=.981&&peak>.5,peak);
+  const shifts=await page.evaluate(async()=>{
+    const script=document.querySelector('script[src*="app."]').src;
+    const {remixRecording}=await import(new URL('recording-process.mjs',script));
+    const context=new AudioContext(),rate=context.sampleRate,raw=context.createBuffer(1,rate,rate),samples=raw.getChannelData(0);
+    for(let i=Math.floor(.4*rate);i<Math.floor(.5*rate);i++)samples[i]=.2*Math.sin(2*Math.PI*440*i/rate);
+    const meta={seconds:1,mode:'voice',balance:{manual:true,voice:100,backing:0},post:{samples:[],segments:[{offset:0,songTime:0,duration:1}]}};
+    const result=[];
+    for(const delay of [0,100,-100]){const audio=await remixRecording(raw,[],meta,delay);result.push({delay,onset:audio.getChannelData(0).findIndex(x=>Math.abs(x)>.01)/rate,duration:audio.duration});}
+    await context.close();return result;
+  });
+  assert.ok(Math.abs(shifts[0].onset-shifts[1].onset-.1)<.002,JSON.stringify(shifts));
+  assert.ok(Math.abs(shifts[2].onset-shifts[0].onset-.1)<.002,JSON.stringify(shifts));
+  assert.ok(shifts[2].duration>=1.1);
+  await page.setViewportSize({width:1280,height:900});await page.locator('#recording-post').screenshot({path:'test-results/recording-post.png'});
   assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({voiceAudio,mixedAudio,harmonyAudio,harmonyAfterSeek,harmonyRequests,balanceStatus,peak,manualAutoRatio:true,defaultAuto:true,incrementalSave:true,pauseResume:true,seekBeyondBacking:true,quotaRecovery:true,emptyRecordingAvoided:true,stopRewind:true,automaticFinish:true,restartSeparate:true,off:true,selectiveAndAllScoreDeletion:true,persistence:true,download:true,deleteOne:true,errors}));
+  console.log(JSON.stringify({shifts,voiceAudio,mixedAudio,harmonyAudio,harmonyAfterSeek,harmonyRequests,balanceStatus,peak,manualAutoRatio:true,defaultAuto:true,incrementalSave:true,pauseResume:true,seekBeyondBacking:true,quotaRecovery:true,emptyRecordingAvoided:true,stopRewind:true,automaticFinish:true,restartSeparate:true,off:true,selectiveAndAllScoreDeletion:true,persistence:true,download:true,deleteOne:true,errors}));
 } finally {await browser?.close();server.kill();await rm(fixture,{force:true});}

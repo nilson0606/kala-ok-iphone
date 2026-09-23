@@ -12,7 +12,7 @@
 <main>
   <header><a href="./" class="brand"><span class="brand-icon">♪</span> 唱一下 <small>LOCAL LAB</small></a><div class="header-controls"><span class="pill">本機分析 · 錄音留在本機</span><label class="theme-picker" for="theme-select">配色<select id="theme-select"><option value="current">冷色調</option><option value="warm">暖色調</option></select></label></div></header>
   <nav class="section-nav" aria-label="頁面區段導覽">
-    <a href="#player-section">播放器</a><a href="#prepare-section">歌曲準備</a><a href="#library-panel">歌曲庫</a><a href="#voice-section">收音</a><a href="#timing-section">延遲</a><a href="#score-section">評分／結算</a><a href="#local-section">本機設定</a><a href="manual.html" target="_blank" rel="noopener">操作手冊 ↗</a>
+    <a href="#player-section">播放器</a><a href="#prepare-section">歌曲準備</a><a href="#library-panel">歌曲庫</a><a href="#voice-section">收音</a><a href="#timing-section">延遲</a><a href="#score-section">評分／結算</a><a href="#recording-post">錄音後處理</a><a href="#local-section">本機設定</a><a href="manual.html" target="_blank" rel="noopener">操作手冊 ↗</a>
   </nav>
   <section class="intro"><p class="eyebrow">DESKTOP KARAOKE / 本機練唱版</p><h1>看著唱。<br><span>看見你的聲音。</span></h1><p>貼上歌曲，讓本機準備旋律基準。戴上耳機，看著 YouTube 唱，唱完留下歌名與分數。</p></section>
   <div id="environment" class="notice" role="status"></div>
@@ -140,6 +140,17 @@
     <p class="footnote">暫停與緩衝不計分。漏唱與跳過的段落會降低分數；「整首歌曲」模式也會計入提前結束的剩餘段落。可在中途按「結束並結算」，或等影片播完自動結算。進拍分數依旋律起音估計，不是專業聲樂評鑑。</p>
     <details id="history-panel"><summary>分數紀錄 · 勾選清除</summary><label class="check-option"><input id="history-select-all" type="checkbox">全選</label><ul id="score-history" class="score-history"></ul><div class="button-row history-actions"><button id="delete-history-selected" class="secondary" type="button" disabled>清除勾選紀錄</button><button id="clear-history" class="secondary" type="button">全部清除</button></div><p id="history-status" class="help" role="status">只清除分數，不刪除演唱錄音或歌曲。</p></details>
     <details id="recordings-panel"><summary>演唱錄音 · 試聽／下載</summary><p class="help">自動保存在這個瀏覽器。Chrome 與 Edge 不共用；清除網站資料會刪除錄音，重要錄音請下載備份。直接按 YouTube 播放只評分；要錄音請按「從頭開始唱」。</p><button id="recording-refresh" class="secondary" type="button">重新整理錄音</button><audio id="recording-audio" controls hidden></audio><ul id="recording-list" class="library-list"></ul></details>
+  </section>
+  <section id="recording-post" class="card" tabindex="-1" aria-labelledby="post-heading">
+    <div class="section-top"><h2 id="post-heading"><span class="step">05</span> 錄音後處理</h2><span class="subtle">調整延時，不必重唱</span></div>
+    <label for="post-recording">選擇已保存的錄音</label><select id="post-recording"><option value="">尚無錄音</option></select>
+    <p id="post-info" class="help"></p>
+    <label for="post-delay">歌聲延時校正（毫秒）</label><input id="post-delay" type="number" min="-2000" max="2000" step="10" value="0">
+    <p class="help">正值：歌聲晚到，將歌聲提前；負值：歌聲太早，將歌聲延後。填入總校正量，不是累加；配樂與和音不移動。初始值沿用這次演唱開始時的時間補償。</p>
+    <div class="button-row"><button id="post-rescore" type="button" disabled>1. 調延時重新評分</button><button id="post-remix" type="button" disabled>2. 調延時重新合成</button><button id="post-mp3" type="button" class="secondary" disabled>3. 轉 MP3 並下載</button></div>
+    <p id="post-score" class="score-title" role="status"></p><p id="post-status" class="status" role="status">新版錄音會保存乾淨歌聲與評分資料，後處理只在本機進行。</p>
+    <audio id="post-audio" controls hidden></audio>
+    <p class="help">重新評分沿用當次基準、遮罩及評分設定，結果保存於這筆錄音。重新合成會另存一筆，可試聽後再轉 MP3；原錄音保留。配樂／和音需歌曲庫中的同版本音軌。舊錄音若沒有乾淨歌聲及時間資料，只能轉 MP3，不能單獨校正歌聲。選「不保存錄音」時不保留後處理資料。</p>
   </section>
   <aside class="notice" aria-label="使用限制與免責聲明"><strong>本機測試用途 · 不得商用</strong><p class="help">本工具僅供本機測試與個人非商業練習。請尊重著作權，只處理您有權使用或已取得授權的內容，不得未經授權下載、複製或散布。本工具不提供歌曲內容或使用授權；使用者應自行確認其使用符合相關法規與平台規範。自動分析與評分僅供測試參考，不保證準確性。</p></aside>
   <footer><span>唱一下 / Local-first experiment</span><span>麥克風 → 本機音高分析 → 畫面</span></footer>

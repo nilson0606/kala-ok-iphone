@@ -32,7 +32,10 @@ export function createRecordingMix(context, mic, destination, { mode, settings, 
     }
     return levels;
   }
-  return { input:backingMeter, update, settings:config, disconnect() {
+  return { input:backingMeter, update, settings:config, setLevels(levels,time) {
+    voiceGain.gain.setTargetAtTime(levels.voice,time,.3);
+    backingGain.gain.setTargetAtTime(levels.backing,time,.3);
+  }, disconnect() {
     mic.disconnect(voiceMeter);
     for(const node of [voiceMeter,backingMeter,voiceGain,backingGain,compressor,ceiling])node.disconnect();
   }};
