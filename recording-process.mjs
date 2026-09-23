@@ -4,12 +4,22 @@ export function delaySeconds(ms) {
   if(!Number.isFinite(ms)||Math.abs(ms)>2000)throw new Error('延時需介於 −2000 與 +2000 ms。');
   return ms/1000;
 }
+export function recordedSongTime(segments, offset) {
+  const segment=segments.find(s=>offset>=s.offset&&offset<s.offset+s.duration);
+  return segment ? segment.songTime+offset-segment.offset : null;
+}
 export function rescoreRecording(post, ms) {
   const shift=delaySeconds(ms), take=new ScoringTake(post.reference,post.scoring);
   take.begin(0);
   for(const segment of post.segments)take.advance(segment.songTime+segment.duration);
   const end=take.endIndex;
-  for(const {time,hz} of post.samples)take.sample(time-shift,hz);
+  if(post.audioAnalysis?.source==='decoded-voice-v1') {
+    // Move the audio first, then map to the accompaniment timeline, just as remix does.
+    for(const {offset,hz} of post.audioAnalysis.samples) {
+      const time=recordedSongTime(post.segments,offset-shift);
+      if(time!==null)take.sample(time,hz);
+    }
+  } else for(const {time,hz} of post.samples)take.sample(time-shift,hz);
   // Moving notes must not expand or shrink the performed interval denominator.
   take.endIndex=end;
   return take.result();

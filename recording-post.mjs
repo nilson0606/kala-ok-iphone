@@ -11,6 +11,23 @@ async function localRequest(path,body) {
   if(!response.ok){const error=await response.json().catch(()=>({}));throw new Error(error.error||'所需音軌不存在，請還原相同版本的歌曲音軌。');}
   return response;
 }
+async function recordedAnalysis(blob, progress) {
+  const context=new AudioContext({sampleRate:16000});
+  let audio,sampleRate;
+  try {
+    const decoded=await context.decodeAudioData(await blob.arrayBuffer());sampleRate=decoded.sampleRate;
+    audio=new Float32Array(decoded.length);
+    for(let c=0;c<decoded.numberOfChannels;c++){const channel=decoded.getChannelData(c);for(let i=0;i<audio.length;i++)audio[i]+=channel[i]/decoded.numberOfChannels;}
+  } finally {await context.close();}
+  return new Promise((resolve,reject)=>{
+    const worker=new Worker(new URL('./recording-analysis.mjs',import.meta.url),{type:'module'});
+    const timer=setTimeout(()=>{worker.terminate();reject(new Error('歌聲分析逾時，請重試。'));},600000);
+    const done=(error,value)=>{clearTimeout(timer);worker.terminate();error?reject(error):resolve(value);};
+    worker.onerror=()=>done(new Error('歌聲分析無法啟動，請更新頁面後重試。'));
+    worker.onmessage=({data})=>{if(data.error)done(new Error(data.error));else if(data.result)done(null,data.result);else progress(data.progress);};
+    worker.postMessage({audio,sampleRate},[audio.buffer]);
+  });
+}
 export function createRecordingPost({store,stop,pause}) {
   let rows=[],selected=null,busy=false,url=null;
   const status=text=>{$('post-status').textContent=text;};
@@ -26,14 +43,18 @@ export function createRecordingPost({store,stop,pause}) {
     $('post-info').textContent=selected?(selected.post&&selected.rawBytes?'已保存乾淨歌聲、播放位置與當次基準，可重評／重合成。':'此錄音未保存後處理來源，可轉 MP3 下載。'): '請先保存一段演唱錄音。';
     showScore();controls();
   }
-  function showScore(){const r=selected?.postResult;$('post-score').textContent=r?`校正 ${r.delayMs} ms · 總分 ${r.score??'—'} · 音準 ${r.pitch} · 進拍 ${r.rhythm} · 完整度 ${r.coverage}`:'';}
+  function showScore(){const r=selected?.postResult;$('post-score').textContent=r?`${r.source==='decoded-voice-v1'?'音檔重評':'舊版即時資料重評'} · 校正 ${r.delayMs} ms · 總分 ${r.score??'—'} · 音準 ${r.pitch} · 進拍 ${r.rhythm} · 完整度 ${r.coverage}${r.baseline ? ` · 同音檔 0 ms 進拍 ${r.baseline.rhythm}` : ''}`:'';}
   function refresh(value){rows=value;const old=$('post-recording').value;const options=rows.map(row=>{const o=document.createElement('option');o.value=row.id;o.textContent=`${row.title} · ${new Date(row.created).toLocaleString()}`;return o;});$('post-recording').replaceChildren(...options);if(rows.some(r=>r.id===old))$('post-recording').value=old;if(selected?.id===old&&rows.some(r=>r.id===old)){selected=rows.find(r=>r.id===old);controls();}else if(!busy)choose();}
   function select(id){$('post-recording').value=id;choose();$('recording-post').scrollIntoView({block:'start'});}
   async function run(action){if(busy||!selected)return;busy=true;controls();try{await stop();pause();const row=selected;if(row)await action(row);}catch(error){status(error.message);}finally{busy=false;controls();}}
   $('post-recording').addEventListener('change',choose);
   $('post-rescore').addEventListener('click',()=>run(async row=>{
     const delayMs=Number($('post-delay').value);delaySeconds(delayMs);status('正在以當次基準重新評分…');
-    row.postResult={...rescoreRecording(row.post,delayMs),delayMs};await store.save(row);showScore();status('重評完成，已保存於這筆錄音；原始成績紀錄保留。');
+    if(row.post.audioAnalysis?.source!=='decoded-voice-v1') {
+      status('正在從保存的乾淨歌聲重新擷取音高…');
+      row.post.audioAnalysis=await recordedAnalysis(await store.blob(row,'voice'),percent=>status(`正在分析乾淨歌聲 ${percent}%…`));
+    }
+    row.postResult={...rescoreRecording(row.post,delayMs),delayMs,source:'decoded-voice-v1',baseline:rescoreRecording(row.post,0)};await store.save(row);showScore();status('重評完成：直接分析保存的歌聲，使用與重混相同的時間軸；結果已保存，原始成績紀錄保留。');
   }));
   $('post-remix').addEventListener('click',()=>run(async row=>{
     const delayMs=Number($('post-delay').value);delaySeconds(delayMs);status('正在載入乾淨歌聲與配樂／和音…');

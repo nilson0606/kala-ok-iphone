@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const assets = ['style.css','theme.mjs','app.mjs','navigation.mjs','audio.mjs','session.mjs','scoring.mjs','calibration.mjs','mask-editor.mjs','recording.mjs','recording-store.mjs','recording-mix.mjs','recording-post.mjs','recording-process.mjs'];
+export const assets = ['style.css','theme.mjs','app.mjs','navigation.mjs','audio.mjs','session.mjs','scoring.mjs','calibration.mjs','mask-editor.mjs','recording.mjs','recording-store.mjs','recording-mix.mjs','recording-post.mjs','recording-process.mjs','recording-analysis.mjs'];
 const root = fileURLToPath(new URL('./',import.meta.url));
 export async function buildSite(output = path.join(root,'_site'), source = root) {
   const files = new Map();

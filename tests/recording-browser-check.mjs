@@ -132,7 +132,11 @@ try {
   assert.equal(harmonyRecord.post.segments.length,2);
   await page.locator('#post-recording').selectOption(harmonyRecord.id);await page.locator('#post-delay').fill('100');
   await page.locator('#post-rescore').click();await page.waitForFunction(()=>document.querySelector('#post-status').textContent.includes('重評完成'));
-  assert.equal((await records()).find(r=>r.id===harmonyRecord.id).postResult.delayMs,100);
+  const rescored=(await records()).find(r=>r.id===harmonyRecord.id);
+  assert.equal(rescored.postResult.delayMs,100);assert.equal(rescored.postResult.source,'decoded-voice-v1');assert.ok(rescored.post.audioAnalysis.samples.length>20);
+  assert.ok(rescored.post.audioAnalysis.samples.some(s=>s.hz>435&&s.hz<445));
+  await page.locator('#post-delay').fill('175');await page.locator('#post-rescore').click();await page.waitForFunction(()=>document.querySelector('#post-score').textContent.includes('校正 175 ms'));
+  assert.match(await page.locator('#post-score').textContent(),/同音檔 0 ms 進拍/);
   await page.locator('#post-remix').click();await page.waitForFunction(()=>document.querySelector('#post-status').textContent.includes('已另存校正後錄音'));
   const remixed=(await records()).find(r=>r.parentId===harmonyRecord.id);assert.ok(remixed&&remixed.mime==='audio/wav');
   const remixedAudio=await spectrum(remixed.id);assert.ok(remixedAudio.voice>.02&&remixedAudio.backing>.02&&remixedAudio.harmony>.02,JSON.stringify(remixedAudio));
