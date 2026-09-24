@@ -1,3 +1,4 @@
+import { tunedVoiceBuffer } from './recording-tune.mjs';
 import { softenedVoice } from './recording-soften.mjs';
 import { ScoringTake, validateReference } from './scoring.mjs';
 import { balanceGains, createRecordingMix } from './recording-mix.mjs';
@@ -56,13 +57,13 @@ export function wavBlob(buffer) {
   for(let i=0;i<frames;i++)for(let c=0;c<channels;c++){const x=Math.max(-1,Math.min(1,data[c][i]));view.setInt16(44+2*(i*channels+c),Math.round(x*(x<0?32768:32767)),true);}
   return new Blob([bytes],{type:'audio/wav'});
 }
-export async function remixRecording(raw, tracks, meta, ms, {softening='off'}={}) {
+export async function remixRecording(raw, tracks, meta, ms, {softening='off',tuning='off',progress=()=>{}}={}) {
   const shift=delaySeconds(ms), rate=raw.sampleRate;
   const duration=Math.max(raw.duration+Math.max(0,-shift),meta.seconds);
   if(duration>3600)throw new Error('後處理一次最多一小時。');
-  const context=new OfflineAudioContext(2,Math.ceil(duration*rate),rate), voice=context.createBufferSource();voice.buffer=raw;
+  const context=new OfflineAudioContext(2,Math.ceil(duration*rate),rate), voice=context.createBufferSource();voice.buffer=await tunedVoiceBuffer(context,raw,tuning,progress);
   const p=voicePlacement(raw.duration,ms);
-  const singer=await softenedVoice(context,voice,raw,p,softening);
+  const singer=await softenedVoice(context,voice,voice.buffer,p,softening);
   const mix=createRecordingMix(context,singer,context.destination,{mode:meta.mode,settings:meta.balance,voiced:()=>false});
   if(p.duration>0)voice.start(p.when,p.source,p.duration);
   const rms=(buffer,time)=>{

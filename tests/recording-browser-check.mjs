@@ -227,6 +227,20 @@ try {
   await page.waitForFunction(()=>document.querySelector('#post-status').textContent.includes('MP3 已轉換'));
   await page.evaluate(id=>recordStore.delete(id),softened.id);
 
+  await page.locator('#post-recording').selectOption(harmonyRecord.id);
+  assert.equal(await page.locator('#post-tuning').inputValue(),'off');
+  await page.locator('#post-delay').fill('175');await page.locator('#post-softening').selectOption('light');await page.locator('#post-tuning').selectOption('strong');
+  await page.locator('#post-remix').click();await page.waitForFunction(()=>document.querySelector('#post-status').textContent.includes('電子修音：強烈'));
+  const tuned=(await records()).find(r=>r.parentId===harmonyRecord.id&&r.vocalTuning?.strength==='strong');assert.ok(tuned);
+  assert.equal(tuned.vocalSoftening.strength,'light');assert.equal(tuned.appliedDelayMs,175);
+  assert.ok(await page.locator('#post-tuning').isDisabled());
+  assert.match(await page.locator('#post-recording').locator('option:checked').textContent(),/柔化輕度_修音強烈/);
+  assert.deepEqual((await records()).find(r=>r.id===harmonyRecord.id),sourceBeforeSoftening,'tuning must preserve original recording and scores');
+  const tunedAudio=await spectrum(tuned.id);assert.ok(tunedAudio.voice>.02&&tunedAudio.backing>.02&&tunedAudio.harmony>.02,JSON.stringify(tunedAudio));
+  const tuneDownload=page.waitForEvent('download');await page.locator('#post-mp3').click();assert.ok((await tuneDownload).suggestedFilename().endsWith('_柔化輕度_修音強烈+175ms.mp3'));
+  await page.waitForFunction(()=>document.querySelector('#post-status').textContent.includes('MP3 已轉換'));
+  await page.evaluate(id=>recordStore.delete(id),tuned.id);
+
   await page.evaluate(id=>recordStore.delete(id),harmonyRecord.id);
   assert.equal(await page.evaluate(async row=>(await recordStore.blob(row,'voice')).size,harmonyRecord),0);
   // A missing harmony file must fail before recording instead of silently omitting it.
@@ -317,6 +331,26 @@ try {
   const softValues=softeningSpectrum.values;
   for(let i=1;i<softValues.length;i++){assert.ok(softValues[i].high<softValues[i-1].high*.95,JSON.stringify(softValues));assert.ok(Math.abs(softValues[i].low/softValues[0].low-1)<.03);assert.ok(Math.abs(softValues[i].backing/softValues[0].backing-1)<.01);assert.equal(softValues[i].duration,softValues[0].duration);}
   console.log('SOFTENING',JSON.stringify(softeningSpectrum));
+  const tuningSpectrum=await page.evaluate(async()=>{
+    const script=document.querySelector('script[src*="app."]').src;
+    const {remixRecording}=await import(new URL('recording-process.mjs',script));
+    const c=new AudioContext({sampleRate:48000}),rate=c.sampleRate,raw=c.createBuffer(1,rate*2,rate),back=c.createBuffer(1,rate*2,rate);
+    for(let i=0;i<raw.length;i++){raw.getChannelData(0)[i]=.1*Math.sin(2*Math.PI*450*i/rate);back.getChannelData(0)[i]=.04*Math.sin(2*Math.PI*1800*i/rate);}
+    const original=raw.getChannelData(0).slice(),meta={seconds:2,mode:'mix',balance:{manual:true,voice:100,backing:100},post:{segments:[{offset:0,songTime:0,duration:2}],samples:[]}};
+    const amplitude=(buffer,hz)=>{let re=0,im=0;const a=buffer.getChannelData(0);for(let i=rate;i<rate*1.8;i++){re+=a[i]*Math.cos(2*Math.PI*hz*i/rate);im+=a[i]*Math.sin(2*Math.PI*hz*i/rate);}return Math.hypot(re,im)/(rate*.4);};
+    const values=[];
+    for(const tuning of ['off','strong']){
+      const out=await remixRecording(raw,[back],meta,150,{tuning,softening:'light'});
+      values.push({tuning,old:amplitude(out,450),target:amplitude(out,440),backing:amplitude(out,1800),duration:out.duration});
+    }
+    const unchanged=original.every((x,i)=>x===raw.getChannelData(0)[i]);await c.close();return {values,unchanged};
+  });
+  assert.ok(tuningSpectrum.unchanged);
+  assert.ok(tuningSpectrum.values[1].target>tuningSpectrum.values[0].target*5,JSON.stringify(tuningSpectrum));
+  assert.ok(tuningSpectrum.values[1].old<tuningSpectrum.values[0].old*.25,JSON.stringify(tuningSpectrum));
+  assert.ok(Math.abs(tuningSpectrum.values[1].backing/tuningSpectrum.values[0].backing-1)<.03,JSON.stringify(tuningSpectrum));
+  assert.equal(tuningSpectrum.values[0].duration,tuningSpectrum.values[1].duration);
+  console.log('TUNING',JSON.stringify(tuningSpectrum));
   await page.setViewportSize({width:1280,height:900});await page.locator('#recording-post').screenshot({path:'test-results/recording-post.png'});
   assert.deepEqual(errors,[]);
   console.log(JSON.stringify({shifts,voiceAudio,mixedAudio,harmonyAudio,harmonyAfterSeek,harmonyRequests,balanceStatus,peak,manualAutoRatio:true,defaultAuto:true,incrementalSave:true,pauseResume:true,seekBeyondBacking:true,quotaRecovery:true,emptyRecordingAvoided:true,stopRewind:true,automaticFinish:true,restartSeparate:true,off:true,selectiveAndAllScoreDeletion:true,persistence:true,download:true,deleteOne:true,errors}));

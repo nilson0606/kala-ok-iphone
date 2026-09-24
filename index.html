@@ -158,7 +158,9 @@
     <p class="help">正值：歌聲晚到，將歌聲提前；負值：歌聲太早，將歌聲延後。填入總校正量，不是累加；配樂與和音不移動。初始值沿用本輪錄音校正值；舊錄音沿用當時保存的時間補償。</p>
     <label for="post-softening">歌聲柔化</label><select id="post-softening" disabled><option value="off">關閉（預設，保留原音色）</option><option value="light">輕度（建議先試）</option><option value="medium">中度</option><option value="strong">較強</option></select>
     <p class="help">柔化歌聲中較尖、較沙的質感，效果依錄音而異；不是消除呼吸聲，也不保證去除氣音。只處理歌唱者，配樂與和音不套用。選好後按「重新合成」另存，原錄音及評分不變；較強可能讓咬字變悶。比較強度時請選回原始錄音，延時填相同數值。</p>
-    <div class="button-row"><button id="post-rescore" type="button" disabled>1. 調延時重新評分</button><button id="post-remix" type="button" disabled>2. 重新合成（延時／柔化）</button><button id="post-mp3" type="button" class="secondary" disabled>3. 轉 MP3 並下載</button></div>
+    <label for="post-tuning">電子修音（保留人聲）</label><select id="post-tuning" disabled><option value="off">關閉（預設）</option><option value="light">輕度（自然微調）</option><option value="medium">中度（較明顯修音）</option><option value="strong">強烈（電音感）</option></select>
+    <p class="help">將可辨識的歌聲拉近最近音符；輕度保留較多滑音與抖音，強烈貼近音符、電音感較明顯。不是 MIDI 樂器替換，也不會依原唱旋律改成正確音符；唱錯整個音、多人聲或伴奏漏入時可能修錯。可搭配歌聲柔化，只套用歌唱者，另存成品，原錄音與評分不變。比較強度請選回原始錄音。</p>
+    <div class="button-row"><button id="post-rescore" type="button" disabled>1. 調延時重新評分</button><button id="post-remix" type="button" disabled>2. 重新合成（延時／音色）</button><button id="post-mp3" type="button" class="secondary" disabled>3. 轉 MP3 並下載</button></div>
     <p class="help"><button id="post-diagnostic" type="button" class="secondary" disabled>下載這筆評分診斷</button> 包含這筆原始錄音、乾淨歌聲、時間位置與評分基準；只下載到本機，供檢查對齊問題。</p>
     <p id="post-score" class="score-title" role="status"></p><p id="post-status" class="status" role="status">新版錄音會保存乾淨歌聲與評分資料，後處理只在本機進行。</p>
     <audio id="post-audio" controls hidden></audio>
