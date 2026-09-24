@@ -13,6 +13,7 @@ try {
   await context.addInitScript(() => {
     const Native = window.AudioContext;
     window.AudioContext = class extends Native {
+      constructor(...args){super(...args);window.analysisContext=this;}
       createMediaStreamSource() { this.testMicrophone = this.createGain(); return this.testMicrophone; }
       createOscillator() {
         const oscillator = super.createOscillator();
@@ -32,11 +33,13 @@ try {
   assert.match(await page.locator('#cal-status').innerText(), /先開啟麥克風/);
   await page.locator('#mic-start').click();
   await page.waitForFunction(() => document.querySelector('#mic-badge').textContent.includes('收音中'));
+  assert.equal(await page.evaluate(()=>analysisContext.sinkId.type),'none');
   await page.locator('#cal-mode').selectOption('loopback');
   await page.locator('#cal-start').click();
   await page.waitForFunction(() => !document.querySelector('#cal-start').disabled, null, { timeout: 12000 });
   const result = await page.locator('#cal-status').innerText();
   console.log('Synthetic 200 ms loopback:', result);
+  await page.waitForFunction(()=>analysisContext.sinkId?.type==='none');
   assert.match(result, /辨識 5\/5 音/);
   const ms = Number(result.match(/補償 ([+-]?\d+) ms/)[1]);
   assert.ok(ms >= 150 && ms <= 300, `unexpected calibration: ${ms}`);
@@ -46,6 +49,7 @@ try {
   await page.locator('#cal-start').click(); await page.locator('#cal-stop').click();
   assert.ok(await page.locator('#cal-apply').isDisabled());
   assert.equal(Number(await page.locator('#offset').inputValue()), ms);
+  await page.waitForFunction(()=>analysisContext.sinkId?.type==='none');
   await page.locator('#mic-stop').click();
   await page.evaluate(()=>navigator.mediaDevices.dispatchEvent(new Event('devicechange')));
   assert.equal(await page.locator('#offset').inputValue(),'150');

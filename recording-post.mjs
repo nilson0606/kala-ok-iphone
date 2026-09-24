@@ -13,7 +13,7 @@ async function localRequest(path,body) {
   return response;
 }
 async function recordedAnalysis(blob, progress) {
-  const context=new AudioContext({sampleRate:16000});
+  const context=new AudioContext({sampleRate:16000,sinkId:{type:'none'}});
   let audio,sampleRate;
   try {
     const decoded=await context.decodeAudioData(await blob.arrayBuffer());sampleRate=decoded.sampleRate;
@@ -78,7 +78,7 @@ export function createRecordingPost({store,stop,pause,reference=()=>null}) {
   }));
   $('post-remix').addEventListener('click',()=>run(async row=>{
     const delayMs=Number($('post-delay').value);delaySeconds(delayMs);status('正在載入乾淨歌聲與配樂／和音…');
-    const context=new AudioContext();
+    const context=new AudioContext({sinkId:{type:'none'}});
     try{
       const raw=await context.decodeAudioData(await (await store.blob(row,'voice')).arrayBuffer()),tracks=[];
       if(row.mode==='mix')for(const stem of row.stems){const response=await localRequest(`/library/${row.post.reference.cacheId}/${stem}`);tracks.push(await context.decodeAudioData(await response.arrayBuffer()));}

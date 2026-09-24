@@ -172,7 +172,7 @@ export function createSingerRecorder(options) {
         let correctionError='';
         if(a.meta.recordingDelayMs!==0){
           status(`正在將錄音歌聲校正 ${a.meta.recordingDelayMs} ms 並保存…`);
-          const decoder=new AudioContext();
+          const decoder=new AudioContext({sinkId:{type:'none'}});
           try{
             const raw=await decoder.decodeAudioData(await(await store.blob(a.meta,'voice')).arrayBuffer());
             const audio=await remixRecording(raw,a.buffers,a.meta,a.meta.recordingDelayMs),blob=wavBlob(audio);

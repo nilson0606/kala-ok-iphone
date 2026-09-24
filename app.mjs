@@ -120,7 +120,7 @@ async function activateMic() {
   const token = ++generation; let pendingStream, pendingContext;
   $('mic-start').disabled = true; $('mic-stop').disabled = false; $('mic-status').textContent = '請允許網站使用麥克風…';
   try {
-    pendingContext = new AudioContext({ latencyHint: 'interactive' });
+    pendingContext = new AudioContext({ latencyHint: 'interactive', sinkId: { type: 'none' } });
     const resumed = pendingContext.resume().catch(() => {});
     pendingStream = await navigator.mediaDevices.getUserMedia({ audio: { ...($('input-device').value ? { deviceId: { exact: $('input-device').value } } : {}), echoCancellation: false, noiseSuppression: false, autoGainControl: false }, video: false });
     await resumed;
@@ -132,7 +132,7 @@ async function activateMic() {
     const track = stream.getAudioTracks()[0], settings = track.getSettings();
     await refreshInputs();
     if (token !== generation) return;
-    $('device').textContent = `輸入：${track.label || '瀏覽器預設麥克風'}\n取樣率：${context.sampleRate} Hz\n輸入延遲：${latency(settings.latency)}\nWeb Audio 輸出延遲：${latency(context.outputLatency)}\n回音消除：${String(settings.echoCancellation ?? '未知')}\n\n輸出估計屬於本頁 AudioContext，不代表 YouTube 的延遲；不會自動填入補償值。`;
+    $('device').textContent = `輸入：${track.label || '瀏覽器預設麥克風'}\n取樣率：${context.sampleRate} Hz\n輸入延遲：${latency(settings.latency)}\nWeb Audio 輸出延遲：${latency(context.outputLatency)}\n分析輸出：${context.sinkId?.type === 'none' ? '僅分析，不開啟喇叭輸出' : '瀏覽器預設（不支援分析專用輸出）'}\n回音消除：${String(settings.echoCancellation ?? '未知')}\n\n輸出估計屬於本頁 AudioContext，不代表 YouTube 的延遲；不會自動填入補償值。`;
     track.onended = () => stopMic('麥克風中斷，請重新開啟。');
     track.onmute = () => { $('mic-status').textContent = '收音暫時中斷，目前音高不可用。'; };
     track.onunmute = () => { $('mic-status').textContent = '收音已恢復。'; };

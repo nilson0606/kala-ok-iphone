@@ -29,10 +29,16 @@ export class FiveNoteMeasurement {
 export function createCalibration(options) {
   const $ = id => document.getElementById(id);
   let measurement = null, ticker, nodes = [], suggestion = null, epoch = 0;
+  let playbackContext = null, outputQueue = Promise.resolve();
+  function output(context, sinkId) {
+    outputQueue = outputQueue.catch(() => {}).then(() => context.state !== 'closed' ? context.setSinkId(sinkId) : undefined);
+    return outputQueue;
+  }
   function stop(message) {
     epoch++; clearInterval(ticker); measurement = null;
     for (const oscillator of nodes) { try { oscillator.stop(); oscillator.disconnect(); } catch {} }
-    nodes = []; $('cal-start').disabled = false; $('cal-stop').disabled = true;
+    nodes = [];
+    if (playbackContext) { const previous=playbackContext; playbackContext=null; output(previous,{type:'none'}).catch(() => {}); } $('cal-start').disabled = false; $('cal-stop').disabled = true;
     $('cal-mode').disabled = false; $('cal-octave').disabled = false;
     [...$('cal-notes').children].forEach(n => n.classList.remove('active'));
     if (message) { suggestion = null; $('cal-apply').disabled = true; $('cal-status').textContent = message; }
@@ -44,6 +50,11 @@ export function createCalibration(options) {
     const context = options.context(), current = epoch;
     $('cal-start').disabled = true; $('cal-stop').disabled = false; $('cal-mode').disabled = true; $('cal-octave').disabled = true;
     try {
+      await outputQueue.catch(() => {}); if (current !== epoch) return;
+      if (typeof context.setSinkId === 'function' && context.sinkId?.type === 'none') {
+        playbackContext=context; await output(context,'');
+      }
+      if (current !== epoch) return;
       await context.resume(); if (current !== epoch) return;
       const start = context.currentTime + 1.5, wallStart = performance.now() / 1000 + 1.5;
       measurement = new FiveNoteMeasurement(wallStart, Number($('cal-octave').value));
