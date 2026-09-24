@@ -158,8 +158,6 @@
     <p class="help">正值：歌聲晚到，將歌聲提前；負值：歌聲太早，將歌聲延後。填入總校正量，不是累加；配樂與和音不移動。初始值沿用本輪錄音校正值；舊錄音沿用當時保存的時間補償。</p>
     <label for="post-softening">歌聲柔化</label><select id="post-softening" disabled><option value="off">關閉（預設，保留原音色）</option><option value="light">輕度（柔和一點）</option><option value="medium">中度（明顯溫潤）</option><option value="strong">強烈（厚柔、較暗）</option></select>
     <p class="help">音色效果：輕度稍微柔和，中度明顯降低尖亮感，強烈做出厚柔、較暗的音色；不是修復原音或消除呼吸聲。只處理歌唱者，配樂與和音不套用。選好後按「重新合成」另存，原錄音及評分不變；強烈會犧牲一些明亮感與咬字清晰度。比較強度時請選回原始錄音，延時填相同數值。</p>
-    <label for="post-tuning">MIDI／合成器效果（保留人聲）</label><select id="post-tuning" disabled><option value="off">關閉（預設）</option><option value="light">輕度（人聲為主，淡淡合成器）</option><option value="medium">中度（人聲與合成器混合）</option><option value="strong">強烈（合成器為主，保留人聲咬字）</option></select>
-    <p class="help">讓電子鍵盤／合成器音色跟著歌聲的旋律、音量與停頓走，程度越高，合成器比例越大。人聲保留自然音高，不做機器人式重複聲段或硬鎖音高；子音與無法辨識音高的片段保留原音。這是混入音檔的音色效果，不匯出 MIDI 檔。可搭配歌聲柔化，只處理歌唱者，成品另存，原錄音與評分保留。請選回原始錄音重新合成，既有成品不會自動改變。</p>
     <div class="button-row"><button id="post-rescore" type="button" disabled>1. 調延時重新評分</button><button id="post-remix" type="button" disabled>2. 重新合成（延時／音色）</button><button id="post-mp3" type="button" class="secondary" disabled>3. 轉 MP3 並下載</button></div>
     <p class="help"><button id="post-diagnostic" type="button" class="secondary" disabled>下載這筆評分診斷</button> 包含這筆原始錄音、乾淨歌聲、時間位置與評分基準；只下載到本機，供檢查對齊問題。</p>
     <p id="post-score" class="score-title" role="status"></p><p id="post-status" class="status" role="status">新版錄音會保存乾淨歌聲與評分資料，後處理只在本機進行。</p>

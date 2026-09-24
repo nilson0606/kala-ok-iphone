@@ -1,88 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {tuneChannels,tuningProfile,recordingTuningSuffix} from '../recording-tune.mjs';
-import {detectPitch} from '../audio.mjs';
-const rate=48000;
-function tone(hz,seconds=1.5){return Float32Array.from({length:rate*seconds},(_,i)=>.18*Math.sin(2*Math.PI*hz*i/rate)+.06*Math.sin(4*Math.PI*hz*i/rate));}
-function pitch(a){const values=[];for(let i=rate*.4;i<rate*1.2;i+=4800)values.push(detectPitch(a.subarray(i,i+6144),rate).hz);assert.ok(values.every(Boolean));return values.reduce((a,b)=>a+b,0)/values.length;}
-function amplitude(a,hz,start=.4,end=1.4){let re=0,im=0;for(let i=Math.round(rate*start);i<Math.round(rate*end);i++){re+=a[i]*Math.cos(2*Math.PI*hz*i/rate);im+=a[i]*Math.sin(2*Math.PI*hz*i/rate);}return 2*Math.hypot(re,im)/(rate*(end-start));}
-test('strength blends more musical synth while preserving the natural detuned voice and original file',()=>{
-  for(const [target,input] of [[110,113],[220,225],[440,450]]){
-    const raw=tone(input,2),snapshot=raw.slice();let previousSynth=0,previousVoice=Infinity;
-    for(const level of ['light','medium','strong']){
-      const result=tuneChannels([raw],rate,level)[0],synth=amplitude(result,target),voice=amplitude(result,input);
-      assert.ok(synth>previousSynth,`${target} ${level}: more instrument`);previousSynth=synth;
-      assert.ok(voice<previousVoice,`${target} ${level}: less dry voice`);previousVoice=voice;
-      assert.ok(voice>.02,'original natural pitch remains audible instead of being retuned');
-      assert.equal(result.length,raw.length);assert.ok(result.every(Number.isFinite));
-      let inputEnergy=0,outputEnergy=0;for(let i=rate*.4;i<rate*1.4;i++){inputEnergy+=raw[i]**2;outputEnergy+=result[i]**2;}
-      assert.ok(outputEnergy<inputEnergy*1.15,'color must not be an RMS gain boost');
-      assert.ok(result.every(x=>Math.abs(x)<1),'test signal remains unclipped');
-    }
-    assert.deepEqual(raw,snapshot);
-  }
-});
-test('already in-tune singing gains progressively stronger instrument harmonics',()=>{
-  const raw=Float32Array.from({length:rate*2},(_,i)=>.15*Math.sin(2*Math.PI*220*i/rate));let previous=0;
-  for(const level of ['light','medium','strong']){
-    const result=tuneChannels([raw],rate,level)[0],color=amplitude(result,660);
-    assert.ok(color>previous*1.4,`${level}: ${color} vs ${previous}`);previous=color;
-  }
-  assert.ok(previous>.01,'synth character must be present even when no pitch correction is needed');
-});
-test('off is an exact bypass; silence and uncertain noise are retained',()=>{
-  const input=[tone(450)];assert.equal(tuneChannels(input,rate,'off'),input);
-  const silence=new Float32Array(rate);assert.deepEqual(tuneChannels([silence],rate,'strong')[0],silence);
-  let seed=1;const noise=Float32Array.from({length:rate},()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return (seed/2**32-.5)*.1;});
-  assert.deepEqual(tuneChannels([noise],rate,'strong')[0],noise);
-});
-test('stereo shares pitch marks and silence around a voiced region does not move',()=>{
-  const a=new Float32Array(rate*2),v=tone(225,1);a.set(v,rate/2);const b=Float32Array.from(a,x=>x*.5);
-  const [left,right]=tuneChannels([a,b],rate,'strong');
-  assert.equal(left.length,a.length);assert.ok(left.subarray(0,rate/2).every(x=>x===0));assert.ok(left.subarray(rate*1.5).every(x=>x===0));
-  assert.ok(right.every((x,i)=>Math.abs(x-left[i]*.5)<1e-7));
-});
-test('invalid strength and malformed audio fail clearly; filenames describe the applied effect',()=>{
-  assert.throws(()=>tuningProfile('wrong'));
-  assert.throws(()=>tuneChannels([],rate,'light'));
-  assert.throws(()=>tuneChannels([tone(440),new Float32Array(1)],rate,'light'));
-  assert.equal(recordingTuningSuffix({}),'');assert.equal(recordingTuningSuffix({vocalTuning:{strength:'off'}}),'');
-  assert.equal(recordingTuningSuffix({vocalTuning:{strength:'strong'}}),'_修音強烈');
+import {recordingTuningSuffix} from '../recording-tune.mjs';
+test('retired effect keeps legacy recording labels and download names without marking new recordings',()=>{
+  assert.equal(recordingTuningSuffix({}),'');
+  assert.equal(recordingTuningSuffix({vocalTuning:{strength:'off'}}),'');
+  assert.equal(recordingTuningSuffix({vocalTuning:{strength:'invalid'}}),'');
+  assert.equal(recordingTuningSuffix({vocalTuning:{version:1,strength:'light'}}),'_修音輕度');
   assert.equal(recordingTuningSuffix({vocalTuning:{version:2,strength:'strong'}}),'_修音強烈');
   assert.equal(recordingTuningSuffix({vocalTuning:{version:3,strength:'strong'}}),'_合成器強烈');
-});
-
-test('the stronger instrument layer follows stable notes while original vibrato stays in the vocal layer',()=>{
-  const a=new Float32Array(rate*3);let phase=0;
-  for(let i=0;i<a.length;i++){phase+=2*Math.PI*220*2**((20+25*Math.sin(2*Math.PI*5*i/rate))/1200)/rate;a[i]=.2*Math.sin(phase)+.06*Math.sin(2*phase);}
-  const deviation=[];
-  for(const strength of ['off','light','medium','strong']){
-    const b=tuneChannels([a],rate,strength)[0],cents=[];
-    for(let i=rate/2;i<rate*2.5;i+=960){const p=detectPitch(b.subarray(i,i+3840),rate);assert.ok(p.hz);cents.push(1200*Math.log2(p.hz/220));}
-    deviation.push(Math.sqrt(cents.reduce((sum,x)=>sum+x*x,0)/cents.length));
-  }
-  assert.ok(deviation.every((v,i)=>!i||v<deviation[i-1]),JSON.stringify(deviation));
-  assert.ok(deviation[3]<3&&deviation[1]>8,JSON.stringify(deviation));
-});
-
-test('strong mode also colors an in-tune changing vocal waveform and reports applied time',()=>{
-  const a=new Float32Array(rate*2);let seed=1;
-  for(let i=0;i<a.length;i++){
-    seed=(Math.imul(seed,1664525)+1013904223)>>>0;
-    a[i]=.15*Math.sin(2*Math.PI*220*i/rate)+(.08+.06*Math.sin(2*Math.PI*17*i/rate))*Math.sin(2*Math.PI*440*i/rate)+(seed/2**32-.5)*.025;
-  }
-  let report;const light=tuneChannels([a],rate,'light')[0],strong=tuneChannels([a],rate,'strong',()=>{},value=>{report=value;})[0];
-  let sum=0,energy=0;for(let i=rate/2;i<rate*1.5;i++){sum+=(strong[i]-light[i])**2;energy+=a[i]**2;}
-  assert.ok(Math.sqrt(sum/energy)>.15,'strong must reshape local vocal cycles even at a correct pitch');
-  assert.ok(report.processedSeconds>1.5&&report.processedSeconds<=report.duration);
-  assert.equal(strong.length,a.length);assert.ok(strong.every(Number.isFinite));
-});
-test('short imperfect periodic singing is processed while stationary noise is bypassed',()=>{
-  const a=new Float32Array(rate);let seed=1;
-  for(let i=0;i<a.length;i++){
-    seed=(Math.imul(seed,1664525)+1013904223)>>>0;
-    if(i>rate*.25&&i<rate*.75)a[i]=.1*Math.sin(2*Math.PI*225*i/rate)+(seed/2**32-.5)*.14;
-  }
-  let report;tuneChannels([a],rate,'strong',()=>{},value=>{report=value;});
-  assert.ok(report.processedSeconds>.3&&report.processedSeconds<.55,JSON.stringify(report));
 });
