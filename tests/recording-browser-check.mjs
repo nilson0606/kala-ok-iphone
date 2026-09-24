@@ -7,6 +7,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import { normalizeMasks } from '../scoring.mjs';
+import {rescoreRecording} from '../recording-process.mjs';
 const require = createRequire(process.env.PLAYWRIGHT_PACKAGE_ROOT || 'C:/Users/User/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/package.json');
 const { chromium } = require('playwright');
 const site = `http://localhost:${process.env.PORT || 4173}`;
@@ -164,6 +165,26 @@ try {
   await page.locator('#post-reference-source').selectOption('original');await page.locator('#post-rescore').click();
   await page.waitForFunction(()=>document.querySelector('#post-score').textContent.includes('錄音當時基準 YIN'));
   assert.equal((await records()).find(r=>r.id===harmonyRecord.id).postResult.pitch,original175.pitch);
+  // Re-score one saved voice in all profiles without mutating the original take or audio.
+  assert.equal(await page.locator('#post-difficulty').inputValue(),harmonyRecord.post.scoring.difficulty);
+  const difficultyScores={};
+  for(const [difficulty,label] of [['strict','嚴格'],['standard','標準'],['relaxed','寬鬆']]){
+    await page.locator('#post-difficulty').selectOption(difficulty);
+    await page.locator('#post-rescore').click();
+    await page.waitForFunction(()=>!document.querySelector('#post-rescore').disabled);
+    const row=(await records()).find(r=>r.id===harmonyRecord.id),r=row.postResult;
+    const scoring={...row.post.scoring,difficulty};
+    const expected=rescoreRecording({...row.post,scoring,reference:r.reference},175);
+    assert.equal(r.scoring.difficulty,difficulty);assert.equal(r.score,expected.score);assert.equal(r.rhythm,expected.rhythm);
+    assert.deepEqual(r.baseline,rescoreRecording({...row.post,scoring,reference:r.reference},0));
+    assert.deepEqual(row.post.scoring,harmonyRecord.post.scoring);assert.equal(row.bytes,harmonyRecord.bytes);assert.equal(row.appliedDelayMs,150);
+    assert.match(await page.locator('#post-score').textContent(),new RegExp(label));difficultyScores[difficulty]=r.score;
+  }
+  assert.ok(difficultyScores.strict<=difficultyScores.standard&&difficultyScores.standard<=difficultyScores.relaxed);
+  await page.locator('#post-recording').selectOption(voice.id);
+  await page.locator('#post-recording').selectOption(harmonyRecord.id);
+  assert.equal(await page.locator('#post-difficulty').inputValue(),harmonyRecord.post.scoring.difficulty);
+  assert.match(await page.locator('#post-score').textContent(),/寬鬆/,'saved result must retain its actual difficulty');
   const diagnosticDownload=page.waitForEvent('download');await page.locator('#post-diagnostic').click();
   const diagnostic=await diagnosticDownload,stream=await diagnostic.createReadStream(),chunks=[];for await(const chunk of stream)chunks.push(chunk);
   const report=JSON.parse(Buffer.concat(chunks).toString());assert.equal(report.format,'karaoke-recording-diagnostic');assert.equal(report.recording.id,harmonyRecord.id);
@@ -172,7 +193,7 @@ try {
   await page.locator('#post-remix').click();await page.waitForFunction(()=>document.querySelector('#post-status').textContent.includes('已另存校正後錄音'));
   const remixed=(await records()).find(r=>r.parentId===harmonyRecord.id);assert.ok(remixed&&remixed.mime==='audio/wav');
   const remixedAudio=await spectrum(remixed.id);assert.ok(remixedAudio.voice>.02&&remixedAudio.backing>.02&&remixedAudio.harmony>.02,JSON.stringify(remixedAudio));
-  assert.ok(await page.locator('#post-audio').isVisible());assert.ok(await page.locator('#post-rescore').isDisabled());
+  assert.ok(await page.locator('#post-audio').isVisible());assert.ok(await page.locator('#post-rescore').isDisabled());assert.ok(await page.locator('#post-difficulty').isDisabled());
   const mp3download=page.waitForEvent('download');await page.locator('#post-mp3').click();assert.ok((await mp3download).suggestedFilename().endsWith('+175ms.mp3'));
   await page.waitForFunction(()=>document.querySelector('#post-status').textContent.includes('MP3 已轉換'));
   await page.evaluate(id=>recordStore.delete(id),remixed.id);
