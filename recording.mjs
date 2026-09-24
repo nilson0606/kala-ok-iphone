@@ -27,6 +27,7 @@ export function createSingerRecorder(options) {
     $('recording-balance-help').textContent = mode==='off' ? '已關閉錄音，音量平衡不啟動。' : manual ? '手動＋自動：依你的音量設定，兩路各自最多微調 ±3 dB。0% 保持靜音；每輪開始後固定設定。' : '自動平衡：依歌唱者及配樂／和音音量平滑調整，各自最多修正 ±6 dB。下方手動音量不參與；每輪開始後固定設定。';
   }
   function clearPreview() {
+    post.clearAudio();
     const audio = $('recording-audio'); audio.pause(); audio.removeAttribute('src'); audio.load(); audio.hidden = true;
     if (previewURL) URL.revokeObjectURL(previewURL); previewURL = null;
   }

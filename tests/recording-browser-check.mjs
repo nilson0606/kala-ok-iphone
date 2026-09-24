@@ -92,7 +92,13 @@ try {
   assert.ok(await page.locator('#recording-voice-level').isDisabled());
   // Testing the microphone alone must not store audio.
   await page.locator('#mic-start').click();await delay(500);assert.equal((await records()).length,0);
-  await start();await delay(1600);
+  // A post-processing preview left playing must not overlap a new singing take.
+  await page.evaluate(async base64=>{const a=document.querySelector('#post-audio');a.src=URL.createObjectURL(new Blob([Uint8Array.from(atob(base64),c=>c.charCodeAt(0))],{type:'audio/wav'}));a.loop=true;a.hidden=false;await a.play();},melData.toString('base64'));
+  assert.equal(await page.locator('#post-audio').evaluate(a=>a.paused),false);
+  await start();
+  assert.equal(await page.locator('#post-audio').evaluate(a=>a.paused),true);
+  assert.equal(await page.locator('#post-audio').getAttribute('src'),null);
+  await delay(1600);
   const chunksDuring=await records();assert.equal(chunksDuring.length,1);assert.equal(chunksDuring[0].complete,false);
   await page.locator('#mic-stop').click();await waitRecords(1);
   await page.waitForFunction(()=>fixturePlayer.getCurrentTime()<=.05);

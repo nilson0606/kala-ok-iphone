@@ -60,6 +60,7 @@ export function createRecordingPost({store,stop,pause,reference=()=>null}) {
   function refresh(value){rows=value;const old=$('post-recording').value;const options=rows.map(row=>{const o=document.createElement('option');o.value=row.id;o.textContent=`${row.title}${recordingDelaySuffix(row)?" "+recordingDelaySuffix(row):""} · ${new Date(row.created).toLocaleString()}`;return o;});$('post-recording').replaceChildren(...options);if(rows.some(r=>r.id===old))$('post-recording').value=old;if(selected?.id===old&&rows.some(r=>r.id===old)){selected=rows.find(r=>r.id===old);controls();}else if(!busy)choose();}
   function select(id){$('post-recording').value=id;choose();$('recording-post').scrollIntoView({block:'start'});}
   async function run(action){if(busy||!selected)return;busy=true;controls();try{await stop();pause();const row=selected;if(row)await action(row);}catch(error){status(error.message);}finally{busy=false;controls();}}
+  $('post-audio').addEventListener('play',pause);
   $('post-recording').addEventListener('change',choose);
   $('post-reference-source').addEventListener('change',controls);
   $('post-rescore').addEventListener('click',()=>run(async row=>{
