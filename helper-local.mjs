@@ -1,3 +1,4 @@
+import {stopNativeMicrophone} from './native-microphone-server.mjs';
 // Loopback-only service. Recording export receives audio locally; nothing is uploaded to cloud.
 import http from 'node:http';
 import { handleLocalJobs, clearAllJobs, clearStaleJobs } from './local-jobs.mjs';
@@ -54,4 +55,4 @@ server.on('error', err => { console.error(err.message); process.exitCode = 1; })
 server.listen(port, '127.0.0.1', () => console.log(`Local tool status: http://127.0.0.1:${port}/health`));
 
 await clearStaleJobs();
-for (const signal of ['SIGINT','SIGTERM']) process.on(signal, async () => { await clearAllJobs(); server.close(() => process.exit(0)); });
+for (const signal of ['SIGINT','SIGTERM']) process.on(signal, async () => { stopNativeMicrophone(); await clearAllJobs(); server.close(() => process.exit(0)); });

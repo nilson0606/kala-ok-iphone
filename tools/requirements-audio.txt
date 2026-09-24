@@ -6,3 +6,6 @@ soundfile==0.13.1
 # Roformer runs on PyTorch CUDA; ONNX runtime is only a required package import.
 audio-separator[cpu]==0.47.0
 librosa==0.11.0
+
+# Optional local microphone compatibility capture (Windows WASAPI).
+SoundCard==0.4.6

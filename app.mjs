@@ -1,3 +1,4 @@
+import {nativeInputDevices,openNativeMicrophone} from './native-microphone.mjs';
 import { youtubeId, noteOf, detectPitch, playerResponse, alignedTime } from './audio.mjs';
 import { createCalibration } from './calibration.mjs';
 import { createKaraokeSession } from './session.mjs';
@@ -40,7 +41,8 @@ function tracePlayback(stage, extra={}) {
 }
 
 let player, playerReady, apiPromise, stream, context, analyser, samples, micTimer;
-let calibration, micStartPromise, micPitch = null;
+let calibration, micStartPromise, micPitch = null, nativeCapture = null, micAbort = null;
+try{if(localStorage.getItem('karaoke.capture-mode.v1')==='native')$('capture-mode').value='native';}catch{}
 let generation = 0, history = [], beatTimer, beatStart, probeController;
 const supported = window.isSecureContext && !!navigator.mediaDevices?.getUserMedia;
 $('environment').textContent = supported ? '桌機收音環境就緒。可測試麥克風與播放器；未取得歌曲基準前不計分。' : '無法開啟麥克風。請用桌機 Chrome／Edge 開啟 HTTPS 網址，並確認瀏覽器有收音權限。';
@@ -138,6 +140,7 @@ $('offset').addEventListener('input', () => { $('offset-value').textContent = `$
 async function stopMic(message = '收音已停止，麥克風已釋放；錄音結果請查看下方錄音狀態。', rewind = false) {
   generation++; clearInterval(micTimer); calibration?.cancel();
   const recordingEnd = singing.stopRecording();
+  micAbort?.abort(); micAbort=null; nativeCapture?.stop(); nativeCapture=null;
   const oldStream = stream, oldContext = context;
   stream = context = analyser = samples = null; micPitch = null; history = [];
   oldStream?.getTracks().forEach(t => t.stop());
@@ -155,25 +158,27 @@ function startMic() {
   return micStartPromise;
 }
 async function activateMic() {
-  const token = ++generation; let pendingStream, pendingContext;
+  const token = ++generation; let pendingStream, pendingContext, pendingNative;
+  const native=$('capture-mode').value==='native', controller=new AbortController();micAbort=controller;
   tracePlayback('mic-before');
-  $('mic-start').disabled = true; $('mic-stop').disabled = false; $('mic-status').textContent = '請允許網站使用麥克風…';
+  $('mic-start').disabled = true; $('mic-stop').disabled = false; $('mic-status').textContent = native?'正在啟動本機麥克風，請允許 Python 收音…':'請允許網站使用麥克風…';
   try {
-    pendingContext = new AudioContext({ latencyHint: 'interactive', sinkId: { type: 'none' } });
+    pendingContext = new AudioContext({ latencyHint: 'interactive', ...(native?{sampleRate:48000}:{}), sinkId: { type: 'none' } });
     const resumed = pendingContext.resume().catch(() => {});
     tracePlayback('mic-context-created',{sink:pendingContext.sinkId});
-    pendingStream = await navigator.mediaDevices.getUserMedia({ audio: { ...($('input-device').value ? { deviceId: { exact: $('input-device').value } } : {}), echoCancellation: false, noiseSuppression: false, autoGainControl: false }, video: false });
+    if(native){pendingNative=await openNativeMicrophone(pendingContext,{deviceId:$('input-device').value,signal:controller.signal,onError:error=>{if(token===generation)stopMic(error.message);}});pendingStream=pendingNative.stream;}
+    else pendingStream = await navigator.mediaDevices.getUserMedia({ audio: { ...($('input-device').value ? { deviceId: { exact: $('input-device').value } } : {}), echoCancellation: false, noiseSuppression: false, autoGainControl: false }, video: false });
     tracePlayback('mic-stream-acquired',{input:pendingStream.getAudioTracks()[0]?.label});
     await resumed;
-    if (token !== generation) { pendingStream.getTracks().forEach(t => t.stop()); await pendingContext.close(); return; }
-    stream = pendingStream; context = pendingContext;
+    if (token !== generation) { pendingNative?.stop(); pendingStream.getTracks().forEach(t => t.stop()); await pendingContext.close(); return; }
+    stream = pendingStream; context = pendingContext; nativeCapture=pendingNative;
     const source = context.createMediaStreamSource(stream);
     analyser = context.createAnalyser(); analyser.fftSize = 4096; source.connect(analyser);
     samples = new Float32Array(analyser.fftSize);
     const track = stream.getAudioTracks()[0], settings = track.getSettings();
     await refreshInputs();
     if (token !== generation) return;
-    $('device').textContent = `輸入：${track.label || '瀏覽器預設麥克風'}\n取樣率：${context.sampleRate} Hz\n輸入延遲：${latency(settings.latency)}\nWeb Audio 輸出延遲：${latency(context.outputLatency)}\n分析輸出：${context.sinkId?.type === 'none' ? '僅分析，不開啟喇叭輸出' : '瀏覽器預設（不支援分析專用輸出）'}\n回音消除：${String(settings.echoCancellation ?? '未知')}\n\n輸出估計屬於本頁 AudioContext，不代表 YouTube 的延遲；不會自動填入補償值。`;
+    $('device').textContent = `輸入：${pendingNative?.label || track.label || '瀏覽器預設麥克風'}${native?'（本機相容收音）':''}\n取樣率：${context.sampleRate} Hz\n輸入延遲：${latency(settings.latency)}\nWeb Audio 輸出延遲：${latency(context.outputLatency)}\n分析輸出：${context.sinkId?.type === 'none' ? '僅分析，不開啟喇叭輸出' : '瀏覽器預設（不支援分析專用輸出）'}\n回音消除：${String(settings.echoCancellation ?? '未知')}\n\n輸出估計屬於本頁 AudioContext，不代表 YouTube 的延遲；不會自動填入補償值。`;
     track.onended = () => stopMic('麥克風中斷，請重新開啟。');
     track.onmute = () => { $('mic-status').textContent = '收音暫時中斷，目前音高不可用。'; };
     track.onunmute = () => { $('mic-status').textContent = '收音已恢復。'; };
@@ -182,6 +187,7 @@ async function activateMic() {
     micTimer = setInterval(readMic, 65); tracePlayback('mic-before-session'); singing.micStarted(); tracePlayback('mic-after-session');
     setTimeout(()=>{if(token===generation)tracePlayback('mic-after-1s');},1000); return true;
   } catch (err) {
+    pendingNative?.stop();
     pendingStream?.getTracks().forEach(t => t.stop());
     if (pendingContext && pendingContext.state !== 'closed') await pendingContext.close().catch(() => {});
     if (token !== generation) return;
@@ -260,17 +266,21 @@ navigator.mediaDevices?.addEventListener('devicechange', () => { resetOffset(); 
 function cleanup() { probeController?.abort(); stopBeats(); stopMic('頁面已離開前景，收音已停止。請重新開啟。'); }
 document.addEventListener('visibilitychange', () => { if (document.hidden) cleanup(); }); window.addEventListener('pagehide', cleanup);
 
+let inputRefreshGeneration=0;
 async function refreshInputs() {
+  const request=++inputRefreshGeneration, mode=$('capture-mode').value;
   const select = $('input-device'), previous = select.value;
   try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
+    const devices = mode==='native'?await nativeInputDevices():await navigator.mediaDevices.enumerateDevices();
+    if(request!==inputRefreshGeneration||mode!==$('capture-mode').value)return;
     select.replaceChildren(new Option('系統預設麥克風', ''));
     for (const [i, d] of devices.filter(d => d.kind === 'audioinput').entries()) {
       if (d.deviceId && d.deviceId !== 'default') select.append(new Option(d.label || `麥克風 ${i + 1}`, d.deviceId));
     }
     if ([...select.options].some(o => o.value === previous)) select.value = previous;
-  } catch { /* Device labels are optional; default recording remains available. */ }
+  } catch(error) { if(request===inputRefreshGeneration&&mode===$('capture-mode').value&&mode==='native')$('mic-status').textContent=error.message; }
 }
+$('capture-mode').addEventListener('change',async()=>{await stopMic('已切換收音方式，請重新選擇麥克風並開啟。');$('input-device').replaceChildren(new Option('系統預設麥克風',''));try{localStorage.setItem('karaoke.capture-mode.v1',$('capture-mode').value);}catch{}await refreshInputs();});
 $('input-device').addEventListener('change', () => {
   resetOffset(); stopMic('已切換麥克風，補償已回到預設＋150 ms。請按開啟麥克風使用新裝置。');
 });
@@ -313,3 +323,8 @@ window.addEventListener('pageshow', e => { if (e.persisted) location.reload(); }
 
 window.addEventListener('local-tools-ready',connectPlaybackTrace);
 connectPlaybackTrace();
+
+// Restore device choices after reload/helper startup without opening the microphone.
+function refreshNativeChoices(){if($('capture-mode').value==='native')refreshInputs();}
+window.addEventListener('local-tools-ready',refreshNativeChoices);
+refreshNativeChoices();

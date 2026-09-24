@@ -54,6 +54,7 @@
     </section>
     <section id="voice-section" tabindex="-1" class="card voice-card">
       <div class="section-top"><h2><span class="step">02</span> 試試你的聲音</h2><span id="mic-badge" class="badge">麥克風未開啟</span></div>
+      <label for="capture-mode">收音方式</label><select id="capture-mode"><option value="browser">瀏覽器收音（原有方式）</option><option value="native">本機相容收音（開麥後伴奏變小聲時使用）</option></select><p class="help">本機相容模式由這台電腦的 Python 收音，需要啟動本機工具並允許 Python 麥克風權限。聲音只送回本機瀏覽器；仍依下方錄音選項決定是否保存。切換收音方式後請重新測試延遲。</p>
       <label for="input-device">收音麥克風</label><select id="input-device"><option value="">系統預設麥克風</option></select><p class="help">第一次允許收音後可選裝置。建議先用有線耳機或 USB 麥克風測試。</p>
       <div class="pitch-value"><span id="note">—</span><div><strong id="frequency">等待收音</strong><small id="cents">單音音高 · 65–1000 Hz</small></div></div>
       <div class="level-label"><span>收音音量</span><span id="level-text">— dBFS</span></div><meter id="level" min="0" max="1" value="0" aria-label="麥克風音量"></meter>

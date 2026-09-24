@@ -1,3 +1,4 @@
+import {handleNativeMicrophone} from './native-microphone-server.mjs';
 import { handleRecordingArchive, serializeArchive } from './recording-archive.mjs';
 import { exportRecordingMp3 } from './recording-export.mjs';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -144,9 +145,10 @@ async function start(videoId, seconds, preview = false, force = false, vocalMode
   return job;
 }
 export async function handleLocalJobs(req, res) {
-  if (req.url === '/session' && req.method === 'GET') { json(res, 200, { token, playbackTraceActive: existsSync(path.join(root, '.runtime', 'playback-trace.enabled')), features: ['library', 'stem-preview', 'library-location', 'separation-progress', 'rebuild-song', 'lead-vocals', 'separation-models', 'score-masks', 'pitch-methods', 'residual-separation', 'mel-roformer', 'recording-mp3', 'recording-library', 'recording-raw-mime', 'playback-trace'] }); return true; }
-  if (!req.url.startsWith('/jobs') && !req.url.startsWith('/library') && req.url !== '/shutdown' && req.url !== '/playback-trace' && !req.url.startsWith('/recordings')) return false;
+  if (req.url === '/session' && req.method === 'GET') { json(res, 200, { token, playbackTraceActive: existsSync(path.join(root, '.runtime', 'playback-trace.enabled')), features: ['library', 'stem-preview', 'library-location', 'separation-progress', 'rebuild-song', 'lead-vocals', 'separation-models', 'score-masks', 'pitch-methods', 'residual-separation', 'mel-roformer', 'recording-mp3', 'recording-library', 'recording-raw-mime', 'playback-trace', 'native-microphone'] }); return true; }
+  if (!req.url.startsWith('/microphone/') && !req.url.startsWith('/jobs') && !req.url.startsWith('/library') && req.url !== '/shutdown' && req.url !== '/playback-trace' && !req.url.startsWith('/recordings')) return false;
   if (req.headers['x-karaoke-token'] !== token) { json(res, 403, { error: 'Session token required' }); return true; }
+  if(req.url.startsWith('/microphone/')){await handleNativeMicrophone(req,res,body);return true;}
   if (req.url === '/playback-trace') {
     if(req.method!=='POST'){json(res,405,{error:'POST required'});return true;}
     const value=await body(req);

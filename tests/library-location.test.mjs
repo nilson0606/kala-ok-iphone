@@ -49,7 +49,7 @@ test('helper enforces setup, auth and idle-only changes; selected library surviv
   }
   async function stop() { if (child && child.exitCode === null) { const exited = new Promise(resolve => child.once('exit', resolve)); child.kill(); await exited; } }
   try {
-    for (const file of ['helper-local.mjs', 'local-jobs.mjs', 'recording-export.mjs', 'recording-archive.mjs', 'local-library.mjs', 'library-location.mjs', 'scoring.mjs']) await copyFile(new URL('../' + file, import.meta.url), path.join(dir, file));
+    for (const file of ['helper-local.mjs', 'native-microphone-server.mjs', 'local-jobs.mjs', 'recording-export.mjs', 'recording-archive.mjs', 'local-library.mjs', 'library-location.mjs', 'scoring.mjs']) await copyFile(new URL('../' + file, import.meta.url), path.join(dir, file));
     // Bind a random test port without exposing the helper outside loopback.
     const helper = path.join(dir, 'helper-local.mjs');
     let source = await readFile(helper, 'utf8');
@@ -62,6 +62,10 @@ test('helper enforces setup, auth and idle-only changes; selected library surviv
     assert.equal((await request('/playback-trace','POST',{})).status,400);
     assert.deepEqual(await(await request('/playback-trace','POST',{stage:'mic-before',youtube:{videoId:'M7lc1UVf-VE'}})).json(),{saved:true});
 
+    assert.equal((await request('/microphone/devices','GET',undefined,false)).status,403);
+    assert.equal((await request('/microphone/stream','POST',{deviceId:''},false)).status,403);
+    assert.equal((await request('/microphone/stream','POST',{})).status,400);
+    assert.equal((await request('/microphone/stream','GET')).status,405);
     assert.equal((await request('/recordings/mp3','POST',{},false)).status,403);
     assert.equal((await request('/recordings','GET',undefined,false)).status,403);
     assert.equal((await request('/recordings/mp3','POST',{})).status,400);
