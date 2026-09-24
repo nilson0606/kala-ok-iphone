@@ -143,9 +143,15 @@ async function start(videoId, seconds, preview = false, force = false, vocalMode
   return job;
 }
 export async function handleLocalJobs(req, res) {
-  if (req.url === '/session' && req.method === 'GET') { json(res, 200, { token, features: ['library', 'stem-preview', 'library-location', 'separation-progress', 'rebuild-song', 'lead-vocals', 'separation-models', 'score-masks', 'pitch-methods', 'residual-separation', 'mel-roformer', 'recording-mp3', 'recording-library', 'recording-raw-mime'] }); return true; }
-  if (!req.url.startsWith('/jobs') && !req.url.startsWith('/library') && req.url !== '/shutdown' && !req.url.startsWith('/recordings')) return false;
+  if (req.url === '/session' && req.method === 'GET') { json(res, 200, { token, features: ['library', 'stem-preview', 'library-location', 'separation-progress', 'rebuild-song', 'lead-vocals', 'separation-models', 'score-masks', 'pitch-methods', 'residual-separation', 'mel-roformer', 'recording-mp3', 'recording-library', 'recording-raw-mime', 'playback-trace'] }); return true; }
+  if (!req.url.startsWith('/jobs') && !req.url.startsWith('/library') && req.url !== '/shutdown' && req.url !== '/playback-trace' && !req.url.startsWith('/recordings')) return false;
   if (req.headers['x-karaoke-token'] !== token) { json(res, 403, { error: 'Session token required' }); return true; }
+  if (req.url === '/playback-trace') {
+    if(req.method!=='POST'){json(res,405,{error:'POST required'});return true;}
+    const value=await body(req);
+    if(typeof value.stage!=='string'||value.stage.length>64){json(res,400,{error:'Invalid trace'});return true;}
+    console.log(JSON.stringify({event:'playback-trace',trace:value}));json(res,200,{saved:true});return true;
+  }
   if (req.url === '/recordings/mp3') { if(req.method==='POST')await exportRecordingMp3(req,res);else json(res,405,{error:'Unsupported method'});return true; }
   if (req.url.startsWith('/recordings')) { await serializeArchive(()=>handleRecordingArchive(req,res,location)); return true; }
   if (req.url === '/library/location' && req.method === 'GET') { json(res, 200, { ...await location.get(), selectionPending: !!folderPicker }); return true; }

@@ -57,6 +57,11 @@ test('helper enforces setup, auth and idle-only changes; selected library surviv
     await writeFile(helper, source);
     await start();
     assert.equal((await request('/library/location', 'GET', undefined, false)).status, 403);
+    assert.ok((await(await request('/session')).json()).features.includes('playback-trace'));
+    assert.equal((await request('/playback-trace','POST',{stage:'mic-before'},false)).status,403);
+    assert.equal((await request('/playback-trace','POST',{})).status,400);
+    assert.deepEqual(await(await request('/playback-trace','POST',{stage:'mic-before',youtube:{videoId:'M7lc1UVf-VE'}})).json(),{saved:true});
+
     assert.equal((await request('/recordings/mp3','POST',{},false)).status,403);
     assert.equal((await request('/recordings','GET',undefined,false)).status,403);
     assert.equal((await request('/recordings/mp3','POST',{})).status,400);

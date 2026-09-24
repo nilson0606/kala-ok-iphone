@@ -2,6 +2,28 @@ import { youtubeId, noteOf, detectPitch, playerResponse, alignedTime } from './a
 import { createCalibration } from './calibration.mjs';
 import { createKaraokeSession } from './session.mjs';
 const $ = id => document.getElementById(id);
+// Opt-in local troubleshooting: no audio, credentials, or full reference data are logged.
+const playbackTraceEnabled=new URLSearchParams(location.search).get('tracePlayback')==='1';
+let playbackTraceQueue=Promise.resolve();
+function tracePlayback(stage, extra={}) {
+  if(!playbackTraceEnabled)return;
+  const read=fn=>{try{return fn()??null;}catch{return null;}};
+  const reference=read(()=>singing.reference());
+  const snapshot={stage,time:new Date().toISOString(),build:document.querySelector('meta[name="app-build"]')?.content,
+    youtube:{videoId:read(()=>player.getVideoData().video_id),state:read(()=>player.getPlayerState()),time:read(()=>player.getCurrentTime()),muted:read(()=>player.isMuted()),volume:read(()=>player.getVolume())},
+    reference:reference?{videoId:reference.videoId,cacheId:reference.cacheId,vocalMode:reference.vocalMode}:null,
+    media:['stem-audio','recording-audio','post-audio'].map(id=>{const a=$(id);return{id,source:a?.getAttribute('src')||null,paused:a?.paused,muted:a?.muted,volume:a?.volume,time:a?.currentTime};}),
+    preview:$('preview-status')?.textContent,input:read(()=>stream.getAudioTracks()[0].label),
+    capture:read(()=>stream.getAudioTracks()[0].getSettings()),context:context?{state:context.state,sink:context.sinkId,sampleRate:context.sampleRate}:null,extra};
+  // Browser-specific device IDs are unnecessary; keep only the visible input label and processing flags.
+  if(snapshot.capture){delete snapshot.capture.deviceId;delete snapshot.capture.groupId;}
+  playbackTraceQueue=playbackTraceQueue.catch(()=>{}).then(async()=>{
+    const base='http://127.0.0.1:4174',session=await(await fetch(base+'/session',{signal:AbortSignal.timeout(5000)})).json();
+    if(!session.features?.includes('playback-trace'))return;
+    await fetch(base+'/playback-trace',{method:'POST',headers:{'Content-Type':'application/json','X-Karaoke-Token':session.token},body:JSON.stringify(snapshot),signal:AbortSignal.timeout(5000)});
+  }).catch(()=>{});
+}
+
 let player, playerReady, apiPromise, stream, context, analyser, samples, micTimer;
 let calibration, micStartPromise, micPitch = null;
 let generation = 0, history = [], beatTimer, beatStart, probeController;
@@ -30,6 +52,7 @@ async function loadVideo(e) {
   const button = $('song-form').querySelector('button'); button.disabled = true;
   status('正在載入 YouTube 播放器…');
   try {
+    tracePlayback('load-video-request',{videoId:id});
     await singing.changeSong(id);
     await loadAPI();
     if (player) { player.cueVideoById(id); status('影片已切換，請在播放器內按播放。'); }
@@ -39,13 +62,13 @@ async function loadVideo(e) {
       playerVars: { playsinline: 1, origin: location.origin, autoplay: 0 },
       events: {
         onReady: () => { clearTimeout(readyTimeout); resolve(); $('video-placeholder').style.display = 'none'; status('請按影片上的播放按鈕。'); },
-        onStateChange: e => { status(({ '-1': '尚未開始', 0: '影片結束', 1: '播放中', 2: '暫停', 3: '緩衝中', 5: '已就緒' }[e.data] || '播放器狀態變更')); if (e.data === 1) calibration?.cancel(); singing.playerState(e.data); },
+        onStateChange: e => { tracePlayback('youtube-state',{state:e.data}); status(({ '-1': '尚未開始', 0: '影片結束', 1: '播放中', 2: '暫停', 3: '緩衝中', 5: '已就緒' }[e.data] || '播放器狀態變更')); if (e.data === 1) calibration?.cancel(); singing.playerState(e.data); },
         onAutoplayBlocked: () => status('請直接點影片上的播放按鈕。'),
         onError: e => { clearTimeout(readyTimeout); reject(new Error(`影片無法播放（${e.data}），請換影片。`)); status(`影片無法播放（${e.data}）。可能禁止嵌入、已移除或需登入；請換影片。`); singing.playerState(2); }
       }
     });
     }); }
-    await playerReady; return true;
+    await playerReady; tracePlayback('load-video-ready',{videoId:id}); return true;
   } catch (err) { status(err.message); return false; } finally { button.disabled = false; }
 }
 $('song-form').addEventListener('submit', loadVideo);
@@ -118,11 +141,14 @@ function startMic() {
 }
 async function activateMic() {
   const token = ++generation; let pendingStream, pendingContext;
+  tracePlayback('mic-before');
   $('mic-start').disabled = true; $('mic-stop').disabled = false; $('mic-status').textContent = '請允許網站使用麥克風…';
   try {
     pendingContext = new AudioContext({ latencyHint: 'interactive', sinkId: { type: 'none' } });
     const resumed = pendingContext.resume().catch(() => {});
+    tracePlayback('mic-context-created',{sink:pendingContext.sinkId});
     pendingStream = await navigator.mediaDevices.getUserMedia({ audio: { ...($('input-device').value ? { deviceId: { exact: $('input-device').value } } : {}), echoCancellation: false, noiseSuppression: false, autoGainControl: false }, video: false });
+    tracePlayback('mic-stream-acquired',{input:pendingStream.getAudioTracks()[0]?.label});
     await resumed;
     if (token !== generation) { pendingStream.getTracks().forEach(t => t.stop()); await pendingContext.close(); return; }
     stream = pendingStream; context = pendingContext;
@@ -138,7 +164,8 @@ async function activateMic() {
     track.onunmute = () => { $('mic-status').textContent = '收音已恢復。'; };
     context.onstatechange = () => { if (context?.state !== 'running') $('mic-status').textContent = '音訊處理暫停，請停止後重新開啟。'; };
     $('mic-badge').textContent = '● 收音中'; $('mic-status').textContent = '持續唱「啊」試試。單獨測試麥克風不保存；按「從頭開始唱」依錄音選項保存。';
-    micTimer = setInterval(readMic, 65); singing.micStarted(); return true;
+    micTimer = setInterval(readMic, 65); tracePlayback('mic-before-session'); singing.micStarted(); tracePlayback('mic-after-session');
+    setTimeout(()=>{if(token===generation)tracePlayback('mic-after-1s');},1000); return true;
   } catch (err) {
     pendingStream?.getTracks().forEach(t => t.stop());
     if (pendingContext && pendingContext.state !== 'closed') await pendingContext.close().catch(() => {});
@@ -147,6 +174,8 @@ async function activateMic() {
   }
 }
 $('mic-start').addEventListener('click', startMic);
+for(const id of ['stem-audio','recording-audio','post-audio'])for(const event of ['play','pause','volumechange','emptied'])$(id).addEventListener(event,()=>tracePlayback('media-event',{id,event}));
+window.addEventListener('karaoke-library-selected',e=>tracePlayback('library-selected',e.detail));
 $('mic-stop').addEventListener('click', () => stopMic(undefined, true));
 function readMic() {
   if (!analyser || !samples || context?.state !== 'running') return;

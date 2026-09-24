@@ -238,6 +238,7 @@ export function createKaraokeSession(options) {
         if (reference?.cacheId === song.id) load.setAttribute('aria-current', 'true');
         load.addEventListener('click', () => {
           if (['preparing','finishing','restarting'].includes(phase)) return;
+          window.dispatchEvent(new CustomEvent('karaoke-library-selected',{detail:{cacheId:song.id,videoId:song.videoId,vocalMode:song.vocalMode}}));
           if (reference?.cacheId === song.id) {
             $('separation-model').value = reference.separationModel;
             $('vocal-mode').value = reference.vocalMode;

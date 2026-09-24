@@ -31,10 +31,13 @@ try {
   const context = await browser.newContext();
   await context.addInitScript(() => {
     window.YT = { Player: class {
-      constructor(id, options) { this.options = options; this.time = 0; this.state = -1; window.fixturePlayer = this; setTimeout(() => options.events.onReady({ target: this }), 5); }
+      constructor(id, options) { this.options = options; this.videoId = options.videoId; this.time = 0; this.state = -1; window.fixturePlayer = this; setTimeout(() => options.events.onReady({ target: this }), 5); }
       cueVideoById(videoId) { this.videoId = videoId; this.time = 0; this.state = 5; }
       getCurrentTime() { return this.time + (this.state === 1 ? (performance.now() - this.started) / 1000 : 0); }
       getPlayerState() { return this.state; }
+      getVideoData() { return {video_id:this.videoId}; }
+      isMuted() { return false; }
+      getVolume() { return 100; }
       seekTo(t) { this.lastSeek = t; setTimeout(() => { this.time = t; this.started = performance.now(); }, this.seekDelay || 0); }
       playVideo() { this.lastPlayPosition = this.time; this.started = performance.now(); this.state = 1; this.options.events.onStateChange({ data: 1 }); }
       pauseVideo() { this.time = this.getCurrentTime(); this.state = 2; this.options.events.onStateChange({ data: 2 }); }
@@ -44,12 +47,13 @@ try {
   });
   const page=await context.newPage(), errors=[];
   page.on('pageerror',error=>errors.push(error.message));
-  let serial=0, hasPreview=true, backingRequests=0, harmonyRequests=0, vocalMode='all', missingHarmony=false; const stemRequests=[];
+  let serial=0, hasPreview=true, backingRequests=0, harmonyRequests=0, vocalMode='all', missingHarmony=false; const stemRequests=[],playbackTraces=[];
   let fixturePitch='yin',fixtureHz=440;
   const ref=()=>({version:1,videoId:'M7lc1UVf-VE',title:'Recording fixture',cacheId:'M7lc1UVf-VE_30_v1',step:.1,duration:30,rangeSeconds:30,frames:Array(300).fill(fixtureHz),pitchMethod:fixturePitch,beats:[],bpm:0,hasPreview,vocalMode});
   await page.route('http://127.0.0.1:4174/**',async route=>{
     const req=route.request(),url=new URL(req.url());let value={};
-    if(url.pathname==='/session')value={token:'fixture',features:['library','library-location','separation-progress','rebuild-song','lead-vocals','score-masks','pitch-methods','separation-models','recording-mp3']};
+    if(url.pathname==='/session')value={token:'fixture',features:['library','library-location','separation-progress','rebuild-song','lead-vocals','score-masks','pitch-methods','separation-models','recording-mp3','playback-trace']};
+    else if(url.pathname==='/playback-trace'){playbackTraces.push(req.postDataJSON());value={saved:true};}
     else if(url.pathname==='/library/location')value={configured:true,path:'C:/fixture'};
     else if(url.pathname==='/library')value={songs:[]};
     else if(url.pathname.endsWith('/backing')) {harmonyRequests++;stemRequests.push('backing');await route.fulfill({status:missingHarmony?404:200,body:missingHarmony?'missing':melData,contentType:'audio/wav',headers:{'Access-Control-Allow-Origin':site}});return;}
@@ -61,7 +65,7 @@ try {
     else value={stage:'ready',ready:true};
     await route.fulfill({json:value,headers:{'Access-Control-Allow-Origin':site}});
   });
-  await page.goto(site+'/');
+  await page.goto(site+'/?tracePlayback=1');
   assert.equal(await page.locator('#prepare-settings').getAttribute('open'),null);
   await page.locator('#prepare-settings > summary').click();
   await page.locator('#pitch-method').selectOption('yin'); // This scenario uses a saved YIN fixture.
@@ -91,7 +95,14 @@ try {
   assert.equal(await page.locator('#recording-manual').isChecked(),false);
   assert.ok(await page.locator('#recording-voice-level').isDisabled());
   // Testing the microphone alone must not store audio.
-  await page.locator('#mic-start').click();await delay(500);assert.equal((await records()).length,0);
+  await page.locator('#mic-start').click();await delay(1500);assert.equal((await records()).length,0);
+  const micBefore=playbackTraces.find(x=>x.stage==='mic-before'),micAfter=playbackTraces.find(x=>x.stage==='mic-after-1s');
+  assert.ok(micBefore && micAfter,'Mic transitions must reach the local diagnostic endpoint');
+  assert.equal(micAfter.youtube.videoId,'M7lc1UVf-VE');assert.equal(micAfter.youtube.videoId,micBefore.youtube.videoId);
+  assert.equal(micAfter.youtube.muted,false);assert.equal(micAfter.youtube.volume,100);
+  assert.ok(micAfter.media.every(x=>x.paused),'Opening mic must not start any local stem or recording');
+  assert.ok(!('deviceId' in micAfter.capture));assert.ok(!('groupId' in micAfter.capture));assert.ok(!('token' in micAfter));
+
   // A post-processing preview left playing must not overlap a new singing take.
   await page.evaluate(async base64=>{const a=document.querySelector('#post-audio');a.src=URL.createObjectURL(new Blob([Uint8Array.from(atob(base64),c=>c.charCodeAt(0))],{type:'audio/wav'}));a.loop=true;a.hidden=false;await a.play();},melData.toString('base64'));
   assert.equal(await page.locator('#post-audio').evaluate(a=>a.paused),false);
