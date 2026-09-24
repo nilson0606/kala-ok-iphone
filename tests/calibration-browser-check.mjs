@@ -40,13 +40,16 @@ try {
   assert.match(result, /辨識 5\/5 音/);
   const ms = Number(result.match(/補償 ([+-]?\d+) ms/)[1]);
   assert.ok(ms >= 150 && ms <= 300, `unexpected calibration: ${ms}`);
-  assert.equal(await page.locator('#offset').inputValue(), '0', 'measurement must not apply itself');
+  assert.equal(await page.locator('#offset').inputValue(), '150', 'measurement must not apply itself');
   await page.locator('#cal-apply').click();
   assert.equal(Number(await page.locator('#offset').inputValue()), ms);
   await page.locator('#cal-start').click(); await page.locator('#cal-stop').click();
   assert.ok(await page.locator('#cal-apply').isDisabled());
   assert.equal(Number(await page.locator('#offset').inputValue()), ms);
   await page.locator('#mic-stop').click();
+  await page.evaluate(()=>navigator.mediaDevices.dispatchEvent(new Event('devicechange')));
+  assert.equal(await page.locator('#offset').inputValue(),'150');
+  assert.equal(await page.locator('#offset-value').textContent(),'150 ms');
   assert.deepEqual(errors, []);
   console.log('Five-note UI, explicit apply, cancellation passed.');
 } finally { await browser?.close(); server.kill(); }

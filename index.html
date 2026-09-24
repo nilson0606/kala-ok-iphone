@@ -104,7 +104,7 @@
     <section id="timing-section" tabindex="-1" class="card timing-card">
       <div class="section-top"><h2><span class="step">03</span> 看節拍，調延遲</h2><span class="subtle">手動測試工具</span></div>
       <div class="timing-grid"><div><label for="bpm">手動節拍速度</label><div class="bpm-row"><input id="bpm" type="number" min="40" max="220" step="1" value="90"><span>BPM</span><button id="beat-toggle" class="secondary" type="button">啟動節拍燈</button></div><div id="beats" class="beats" aria-label="四拍節拍燈"><i></i><i></i><i></i><i></i></div><p id="beat-note" class="help">手動節拍燈；基準建立後，若能辨識節奏，改用自動估計拍點。</p></div>
-      <div><label for="offset">手動時間補償 <output id="offset-value">0 ms</output></label><input id="offset" type="range" min="-500" max="1000" step="10" value="0"><div class="range-label"><span>−500 ms</span><span>+1000 ms</span></div><p class="help">正值讓比對位置回到較早的歌曲時間。同時調整評分比對位置；不會消除耳機實際延遲。請先用有線裝置測試。</p></div></div>
+      <div><label for="offset">手動時間補償 <output id="offset-value">150 ms</output></label><input id="offset" type="range" min="-500" max="1000" step="10" value="150"><div class="range-label"><span>−500 ms</span><span>+1000 ms</span></div><p class="help">預設＋150 ms：歌手聲音提前 150 ms 比對，例如 10.150 秒的歌聲對照 10.000 秒的歌曲基準。只調整評分時間，不改變播放器或錄音音檔；錄音校正在下方另設。</p></div></div>
       <details id="calibration-panel"><summary>Do Re Mi Fa Sol 五音延遲測試（選用）</summary>
         <p class="help">先開啟麥克風。測試會播放五個音，畫面同步提示；完成後可選擇套用建議值。</p>
         <label for="cal-mode">測試方式</label><select id="cal-mode"><option value="sing">跟著五音唱（包含人的反應時間）</option><option value="loopback">耳機／喇叭靠近麥克風（不用唱）</option></select>
@@ -114,7 +114,7 @@
         <div class="button-row"><button id="cal-start">播放五音並測試</button><button id="cal-stop" class="secondary" disabled>停止測試</button><button id="cal-apply" class="secondary" disabled>套用建議補償</button></div>
         <p id="cal-status" class="status" role="status">選用測試，不會錄音或保存聲音，也不會自動改動補償。</p>
       </details>
-      <div class="notice muted">藍牙、有線、USB 與電腦內建麥克風請分別測試。更換裝置後，補償值會歸零；系統不會把未知延遲當成 0。</div>
+      <div class="notice muted">藍牙、有線、USB 與電腦內建麥克風請分別測試。更換裝置後，補償值會回到預設＋150 ms；這是起始設定，並非裝置實測延遲。</div>
     </section>
   </div>
   <section id="score-section" tabindex="-1" class="card score-card">
