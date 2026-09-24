@@ -86,7 +86,7 @@ try {
   assert.equal(await page.locator('#prepare-settings').getAttribute('open'),null);
   await page.locator('#prepare-settings > summary').click();
   assert.equal(await page.locator('#separation-method').inputValue(),'residual');
-  assert.equal(await page.locator('#vocal-mode').inputValue(),'lead');
+  assert.equal(await page.locator('#vocal-mode').inputValue(),'all');
   assert.equal(await page.locator('#separation-model').inputValue(),'mel-roformer');
   assert.equal(await page.locator('#pitch-method').inputValue(),'rmvpe');
   assert.equal(await page.locator('#clip-seconds').inputValue(),'0');assert.ok(await page.locator('#keep-preview').isChecked());
