@@ -214,6 +214,19 @@ try {
   const mp3download=page.waitForEvent('download');await page.locator('#post-mp3').click();assert.ok((await mp3download).suggestedFilename().endsWith('+175ms.mp3'));
   await page.waitForFunction(()=>document.querySelector('#post-status').textContent.includes('MP3 已轉換'));
   await page.evaluate(id=>recordStore.delete(id),remixed.id);
+  await page.locator('#post-recording').selectOption(harmonyRecord.id);
+  assert.equal(await page.locator('#post-softening').inputValue(),'off');
+  const sourceBeforeSoftening=(await records()).find(r=>r.id===harmonyRecord.id);
+  await page.locator('#post-delay').fill('175');await page.locator('#post-softening').selectOption('light');
+  await page.locator('#post-remix').click();await page.waitForFunction(()=>document.querySelector('#post-status').textContent.includes('歌聲柔化：輕度'));
+  const softened=(await records()).find(r=>r.parentId===harmonyRecord.id&&r.vocalSoftening?.strength==='light');assert.ok(softened);
+  assert.ok(await page.locator('#post-softening').isDisabled());
+  assert.match(await page.locator('#post-recording').locator('option:checked').textContent(),/柔化輕度/);
+  assert.deepEqual((await records()).find(r=>r.id===harmonyRecord.id),sourceBeforeSoftening,'softening must preserve source and its scoring data');
+  const softDownload=page.waitForEvent('download');await page.locator('#post-mp3').click();assert.ok((await softDownload).suggestedFilename().endsWith('_柔化輕度+175ms.mp3'));
+  await page.waitForFunction(()=>document.querySelector('#post-status').textContent.includes('MP3 已轉換'));
+  await page.evaluate(id=>recordStore.delete(id),softened.id);
+
   await page.evaluate(id=>recordStore.delete(id),harmonyRecord.id);
   assert.equal(await page.evaluate(async row=>(await recordStore.blob(row,'voice')).size,harmonyRecord),0);
   // A missing harmony file must fail before recording instead of silently omitting it.
@@ -287,6 +300,23 @@ try {
   assert.ok(Math.abs(shifts[0].onset-shifts[1].onset-.1)<.002,JSON.stringify(shifts));
   assert.ok(Math.abs(shifts[2].onset-shifts[0].onset-.1)<.002,JSON.stringify(shifts));
   assert.ok(shifts[2].duration>=1.1);assert.ok(Math.abs(shifts[0].onset-shifts[3].onset-.15)<.002,JSON.stringify(shifts));
+  const softeningSpectrum=await page.evaluate(async()=>{
+    const script=document.querySelector('script[src*="app."]').src;
+    const {remixRecording}=await import(new URL('recording-process.mjs',script));
+    const c=new AudioContext({sampleRate:48000}),rate=c.sampleRate,raw=c.createBuffer(1,rate*2,rate),back=c.createBuffer(1,rate*2,rate);
+    for(let i=0;i<raw.length;i++){raw.getChannelData(0)[i]=.08*Math.sin(2*Math.PI*300*i/rate)+.08*Math.sin(2*Math.PI*6000*i/rate);back.getChannelData(0)[i]=.04*Math.sin(2*Math.PI*9000*i/rate);}
+    const original=raw.getChannelData(0).slice();
+    const meta={seconds:2,mode:'mix',balance:{manual:true,voice:100,backing:100},post:{segments:[{offset:0,songTime:0,duration:2}],samples:[]}};
+    const power=(buffer,hz)=>{const a=buffer.getChannelData(0);let re=0,im=0;for(let i=rate;i<rate*2;i++){re+=a[i]*Math.cos(2*Math.PI*hz*i/rate);im+=a[i]*Math.sin(2*Math.PI*hz*i/rate);}return 2*Math.hypot(re,im)/rate;};
+    const values=[];let off;
+    for(const softening of ['off','light','medium','strong']){const rendered=await remixRecording(raw,[back],meta,0,{softening});if(softening==='off')off=rendered;values.push({softening,low:power(rendered,300),high:power(rendered,6000),backing:power(rendered,9000),duration:rendered.duration});}
+    const implicit=await remixRecording(raw,[back],meta,0);
+    const unchanged=original.every((v,i)=>v===raw.getChannelData(0)[i]);const offIdentical=implicit.getChannelData(0).every((v,i)=>v===off.getChannelData(0)[i]);await c.close();return{values,unchanged,offIdentical};
+  });
+  assert.ok(softeningSpectrum.unchanged&&softeningSpectrum.offIdentical);
+  const softValues=softeningSpectrum.values;
+  for(let i=1;i<softValues.length;i++){assert.ok(softValues[i].high<softValues[i-1].high*.95,JSON.stringify(softValues));assert.ok(Math.abs(softValues[i].low/softValues[0].low-1)<.03);assert.ok(Math.abs(softValues[i].backing/softValues[0].backing-1)<.01);assert.equal(softValues[i].duration,softValues[0].duration);}
+  console.log('SOFTENING',JSON.stringify(softeningSpectrum));
   await page.setViewportSize({width:1280,height:900});await page.locator('#recording-post').screenshot({path:'test-results/recording-post.png'});
   assert.deepEqual(errors,[]);
   console.log(JSON.stringify({shifts,voiceAudio,mixedAudio,harmonyAudio,harmonyAfterSeek,harmonyRequests,balanceStatus,peak,manualAutoRatio:true,defaultAuto:true,incrementalSave:true,pauseResume:true,seekBeyondBacking:true,quotaRecovery:true,emptyRecordingAvoided:true,stopRewind:true,automaticFinish:true,restartSeparate:true,off:true,selectiveAndAllScoreDeletion:true,persistence:true,download:true,deleteOne:true,errors}));

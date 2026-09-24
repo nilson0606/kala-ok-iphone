@@ -156,7 +156,9 @@
     <p class="help">選取錄音時，預設沿用錄音當時的難度。更改後按「調延時重新評分」，不必重唱；遮罩、八度及評分範圍仍沿用當次設定。</p>
     <label for="post-delay">歌聲延時校正（毫秒）</label><input id="post-delay" type="number" min="-2000" max="2000" step="10" value="0">
     <p class="help">正值：歌聲晚到，將歌聲提前；負值：歌聲太早，將歌聲延後。填入總校正量，不是累加；配樂與和音不移動。初始值沿用本輪錄音校正值；舊錄音沿用當時保存的時間補償。</p>
-    <div class="button-row"><button id="post-rescore" type="button" disabled>1. 調延時重新評分</button><button id="post-remix" type="button" disabled>2. 調延時重新合成</button><button id="post-mp3" type="button" class="secondary" disabled>3. 轉 MP3 並下載</button></div>
+    <label for="post-softening">歌聲柔化</label><select id="post-softening" disabled><option value="off">關閉（預設，保留原音色）</option><option value="light">輕度（建議先試）</option><option value="medium">中度</option><option value="strong">較強</option></select>
+    <p class="help">柔化歌聲中較尖、較沙的質感，效果依錄音而異；不是消除呼吸聲，也不保證去除氣音。只處理歌唱者，配樂與和音不套用。選好後按「重新合成」另存，原錄音及評分不變；較強可能讓咬字變悶。比較強度時請選回原始錄音，延時填相同數值。</p>
+    <div class="button-row"><button id="post-rescore" type="button" disabled>1. 調延時重新評分</button><button id="post-remix" type="button" disabled>2. 重新合成（延時／柔化）</button><button id="post-mp3" type="button" class="secondary" disabled>3. 轉 MP3 並下載</button></div>
     <p class="help"><button id="post-diagnostic" type="button" class="secondary" disabled>下載這筆評分診斷</button> 包含這筆原始錄音、乾淨歌聲、時間位置與評分基準；只下載到本機，供檢查對齊問題。</p>
     <p id="post-score" class="score-title" role="status"></p><p id="post-status" class="status" role="status">新版錄音會保存乾淨歌聲與評分資料，後處理只在本機進行。</p>
     <audio id="post-audio" controls hidden></audio>
