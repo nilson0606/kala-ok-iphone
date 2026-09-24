@@ -91,10 +91,11 @@ export function createRecordingPost({store,stop,pause,reference=()=>null}) {
       const raw=await context.decodeAudioData(await (await store.blob(row,'voice')).arrayBuffer()),tracks=[];
       if(row.mode==='mix')for(const stem of row.stems){const response=await localRequest(`/library/${row.post.reference.cacheId}/${stem}`);tracks.push(await context.decodeAudioData(await response.arrayBuffer()));}
       status(softening.id==='off'?'正在校正歌聲位置並合成…':`正在套用${softening.label}歌聲柔化並合成…`);
-      const audio=await remixRecording(raw,tracks,row,delayMs,{softening:softening.id,tuning:tuning.id,progress:percent=>status(percent===100?'修音完成，正在合成歌聲與配樂／和音…':`正在套用${tuning.label}電子修音 ${percent}%…`)}),blob=wavBlob(audio);
-      const result={id:crypto.randomUUID(),title:row.title,videoId:row.videoId,mode:row.mode,stems:row.stems,mime:'audio/wav',created:Date.now(),seconds:audio.duration,bytes:blob.size,complete:true,parentId:row.id,delayMs,appliedDelayMs:delayMs,vocalSoftening:{version:1,strength:softening.id},vocalTuning:{version:1,strength:tuning.id,target:'nearest-chromatic'}};
+      let tuningStats=null;
+      const audio=await remixRecording(raw,tracks,row,delayMs,{softening:softening.id,tuning:tuning.id,tuningReport:value=>{tuningStats=value;},progress:percent=>status(percent===100?'修音完成，正在合成歌聲與配樂／和音…':`正在套用${tuning.label}電子修音 ${percent}%…`)}),blob=wavBlob(audio);
+      const result={id:crypto.randomUUID(),title:row.title,videoId:row.videoId,mode:row.mode,stems:row.stems,mime:'audio/wav',created:Date.now(),seconds:audio.duration,bytes:blob.size,complete:true,parentId:row.id,delayMs,appliedDelayMs:delayMs,vocalSoftening:{version:2,strength:softening.id},vocalTuning:{version:2,strength:tuning.id,stats:tuningStats,target:'nearest-chromatic'}};
       await store.save(result,blob,0);refresh(await store.list());$('post-recording').value=result.id;choose();clearAudio();url=URL.createObjectURL(blob);$('post-audio').src=url;$('post-audio').hidden=false;
-      status(`已另存校正後錄音${softening.id==='off'?'':`（歌聲柔化：${softening.label}）`}${tuning.id==='off'?'':`（電子修音：${tuning.label}）`}，請按下方播放鍵試聽；可轉 MP3。原錄音保留，請選回原錄音比較或調整。`);
+      status(`已另存校正後錄音${softening.id==='off'?'':`（歌聲柔化：${softening.label}）`}${tuning.id==='off'?'':`（電子修音：${tuning.label}）`}${tuningStats?`，可處理歌聲約 ${tuningStats.processedSeconds.toFixed(1)} 秒（錄音共 ${Math.round(tuningStats.duration)} 秒，含前奏／停頓）`:""}，請按下方播放鍵試聽；可轉 MP3。原錄音保留，請選回原錄音比較或調整。`);
       window.dispatchEvent(new Event('recording-post-saved'));
     }finally{await context.close();}
   }));

@@ -35,6 +35,7 @@ test('invalid strength and malformed audio fail clearly; filenames describe the 
   assert.throws(()=>tuneChannels([tone(440),new Float32Array(1)],rate,'light'));
   assert.equal(recordingTuningSuffix({}),'');assert.equal(recordingTuningSuffix({vocalTuning:{strength:'off'}}),'');
   assert.equal(recordingTuningSuffix({vocalTuning:{strength:'strong'}}),'_修音強烈');
+  assert.equal(recordingTuningSuffix({vocalTuning:{version:2,strength:'strong'}}),'_修音強烈Ⅱ');
 });
 
 test('strong tuning flattens vibrato more than light tuning while retaining the voice waveform',()=>{
@@ -48,4 +49,26 @@ test('strong tuning flattens vibrato more than light tuning while retaining the 
   }
   assert.ok(deviation.every((v,i)=>!i||v<deviation[i-1]),JSON.stringify(deviation));
   assert.ok(deviation[3]<3&&deviation[1]>8,JSON.stringify(deviation));
+});
+
+test('strong mode also colors an in-tune changing vocal waveform and reports applied time',()=>{
+  const a=new Float32Array(rate*2);let seed=1;
+  for(let i=0;i<a.length;i++){
+    seed=(Math.imul(seed,1664525)+1013904223)>>>0;
+    a[i]=.15*Math.sin(2*Math.PI*220*i/rate)+(.08+.06*Math.sin(2*Math.PI*17*i/rate))*Math.sin(2*Math.PI*440*i/rate)+(seed/2**32-.5)*.025;
+  }
+  let report;const light=tuneChannels([a],rate,'light')[0],strong=tuneChannels([a],rate,'strong',()=>{},value=>{report=value;})[0];
+  let sum=0,energy=0;for(let i=rate/2;i<rate*1.5;i++){sum+=(strong[i]-light[i])**2;energy+=a[i]**2;}
+  assert.ok(Math.sqrt(sum/energy)>.15,'strong must reshape local vocal cycles even at a correct pitch');
+  assert.ok(report.processedSeconds>1.5&&report.processedSeconds<=report.duration);
+  assert.equal(strong.length,a.length);assert.ok(strong.every(Number.isFinite));
+});
+test('short imperfect periodic singing is processed while stationary noise is bypassed',()=>{
+  const a=new Float32Array(rate);let seed=1;
+  for(let i=0;i<a.length;i++){
+    seed=(Math.imul(seed,1664525)+1013904223)>>>0;
+    if(i>rate*.25&&i<rate*.75)a[i]=.1*Math.sin(2*Math.PI*225*i/rate)+(seed/2**32-.5)*.14;
+  }
+  let report;tuneChannels([a],rate,'strong',()=>{},value=>{report=value;});
+  assert.ok(report.processedSeconds>.3&&report.processedSeconds<.55,JSON.stringify(report));
 });
