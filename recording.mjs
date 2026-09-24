@@ -1,4 +1,4 @@
-import {remixRecording,wavBlob,delaySeconds} from './recording-process.mjs';
+import {remixRecording,wavBlob,delaySeconds,recordingDelaySuffix} from './recording-process.mjs';
 import { createRecordingPost } from './recording-post.mjs';
 import { createRecordingMix, mixSettings } from './recording-mix.mjs';
 import { RecordingStore } from './recording-store.mjs';
@@ -35,7 +35,7 @@ export function createSingerRecorder(options) {
     if (!rows.length) { const li = document.createElement('li'); li.textContent = '尚無演唱錄音。'; list.append(li); }
     for (const row of rows) {
       const li = document.createElement('li'), label = document.createElement('strong'), info = document.createElement('small'), buttons = document.createElement('div');
-      label.textContent = row.title;
+      label.textContent = row.title + (recordingDelaySuffix(row) ? ' '+recordingDelaySuffix(row) : '');
       info.textContent = `${new Date(row.created).toLocaleString()} · ${row.mode === 'mix' ? (row.stems?.includes('backing') ? '歌唱者＋配樂／和音' : '歌唱者＋配樂（無獨立和音）') : '歌唱者'}${row.balance ? (row.balance.manual ? ' · 手動＋自動' : ' · 自動平衡') : ''} · ${row._archiveRoot?'歌曲庫錄音目錄':'瀏覽器待搬存'} · ${Math.round(row.seconds)} 秒${Number.isFinite(row.appliedDelayMs)?' · 歌聲校正 '+row.appliedDelayMs+' ms':''}${row.complete ? '' : ' · 未正常結束，保留已儲存片段'}`;
       buttons.className = 'button-row';
       for (const [text, action] of [
@@ -52,7 +52,7 @@ export function createSingerRecorder(options) {
   }
   function download(blob, meta) {
     const url = URL.createObjectURL(blob), link = document.createElement('a');
-    link.href = url; link.download = `${meta.title.replace(/[\\/:*?"<>|]/g,'_').slice(0,80)}-${new Date(meta.created).toISOString().replace(/[:.]/g,'-')}.${meta.mime.includes('wav') ? 'wav' : meta.mime.includes('mp4') ? 'm4a' : 'webm'}`;
+    link.href = url; link.download = `${meta.title.replace(/[\\/:*?"<>|]/g,'_').slice(0,80)}-${new Date(meta.created).toISOString().replace(/[:.]/g,'-')}${recordingDelaySuffix(meta)}.${meta.mime.includes('wav') ? 'wav' : meta.mime.includes('mp4') ? 'm4a' : 'webm'}`;
     link.click(); setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
   function stopBacking(a) {

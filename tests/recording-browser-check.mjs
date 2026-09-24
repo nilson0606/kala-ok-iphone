@@ -173,7 +173,7 @@ try {
   const remixed=(await records()).find(r=>r.parentId===harmonyRecord.id);assert.ok(remixed&&remixed.mime==='audio/wav');
   const remixedAudio=await spectrum(remixed.id);assert.ok(remixedAudio.voice>.02&&remixedAudio.backing>.02&&remixedAudio.harmony>.02,JSON.stringify(remixedAudio));
   assert.ok(await page.locator('#post-audio').isVisible());assert.ok(await page.locator('#post-rescore').isDisabled());
-  const mp3download=page.waitForEvent('download');await page.locator('#post-mp3').click();assert.ok((await mp3download).suggestedFilename().endsWith('.mp3'));
+  const mp3download=page.waitForEvent('download');await page.locator('#post-mp3').click();assert.ok((await mp3download).suggestedFilename().endsWith('+175ms.mp3'));
   await page.waitForFunction(()=>document.querySelector('#post-status').textContent.includes('MP3 已轉換'));
   await page.evaluate(id=>recordStore.delete(id),remixed.id);
   await page.evaluate(id=>recordStore.delete(id),harmonyRecord.id);
@@ -220,7 +220,7 @@ try {
   await page.locator('#recording-list').getByRole('button',{name:'試聽',exact:true}).first().click();
   await page.waitForFunction(()=>document.querySelector('#recording-audio').currentTime>.1);
   const downloaded=page.waitForEvent('download');await page.locator('#recording-list').getByRole('button',{name:'下載',exact:true}).first().click();
-  assert.ok((await downloaded).suggestedFilename().endsWith('.wav'));
+  assert.ok((await downloaded).suggestedFilename().endsWith('+150ms.wav'));
   // Reload preserves all recordings; delete only removes the selected recording.
   await page.locator('#recording-mode').selectOption('off');
   await page.reload();assert.equal(await page.locator('#recording-mode').inputValue(),'off');assert.ok(await page.locator('#recording-manual').isChecked());assert.equal(await page.locator('#recording-voice-level').inputValue(),'60');assert.equal(await page.locator('#recording-backing-level').inputValue(),'80');await page.locator('#recordings-panel summary').click();await page.waitForFunction(()=>document.querySelectorAll('#recording-list li button').length===16);

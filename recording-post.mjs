@@ -1,4 +1,4 @@
-import { rescoreRecording, remixRecording, wavBlob, delaySeconds, referenceForRescore } from './recording-process.mjs';
+import { rescoreRecording, remixRecording, wavBlob, delaySeconds, referenceForRescore, recordingDelaySuffix } from './recording-process.mjs';
 const $=id=>document.getElementById(id), BASE='http://127.0.0.1:4174';
 async function localRequest(path,body) {
   let response;
@@ -54,7 +54,7 @@ export function createRecordingPost({store,stop,pause,reference=()=>null}) {
     showScore();controls();
   }
   function showScore(){const r=selected?.postResult;$('post-score').textContent=r?`${r.source==='decoded-voice-v1'?'音檔重評':'舊版即時資料重評'} · ${r.referenceSource==='current'?'改用已載入基準':'錄音當時基準'} ${(r.reference?.pitchMethod||selected.post?.reference?.pitchMethod||'yin').toUpperCase()} · 校正 ${r.delayMs} ms · 總分 ${r.score??'—'} · 音準 ${r.pitch} · 進拍 ${r.rhythm} · 完整度 ${r.coverage} · 可計分旋律 ${r.referenceSeconds} 秒${r.baseline ? ` · 同音檔 0 ms 進拍 ${r.baseline.rhythm}` : ''}`:'';}
-  function refresh(value){rows=value;const old=$('post-recording').value;const options=rows.map(row=>{const o=document.createElement('option');o.value=row.id;o.textContent=`${row.title} · ${new Date(row.created).toLocaleString()}`;return o;});$('post-recording').replaceChildren(...options);if(rows.some(r=>r.id===old))$('post-recording').value=old;if(selected?.id===old&&rows.some(r=>r.id===old)){selected=rows.find(r=>r.id===old);controls();}else if(!busy)choose();}
+  function refresh(value){rows=value;const old=$('post-recording').value;const options=rows.map(row=>{const o=document.createElement('option');o.value=row.id;o.textContent=`${row.title}${recordingDelaySuffix(row)?" "+recordingDelaySuffix(row):""} · ${new Date(row.created).toLocaleString()}`;return o;});$('post-recording').replaceChildren(...options);if(rows.some(r=>r.id===old))$('post-recording').value=old;if(selected?.id===old&&rows.some(r=>r.id===old)){selected=rows.find(r=>r.id===old);controls();}else if(!busy)choose();}
   function select(id){$('post-recording').value=id;choose();$('recording-post').scrollIntoView({block:'start'});}
   async function run(action){if(busy||!selected)return;busy=true;controls();try{await stop();pause();const row=selected;if(row)await action(row);}catch(error){status(error.message);}finally{busy=false;controls();}}
   $('post-recording').addEventListener('change',choose);
@@ -79,7 +79,7 @@ export function createRecordingPost({store,stop,pause,reference=()=>null}) {
       if(row.mode==='mix')for(const stem of row.stems){const response=await localRequest(`/library/${row.post.reference.cacheId}/${stem}`);tracks.push(await context.decodeAudioData(await response.arrayBuffer()));}
       status('正在校正歌聲位置並合成…');
       const audio=await remixRecording(raw,tracks,row,delayMs),blob=wavBlob(audio);
-      const result={id:crypto.randomUUID(),title:`${row.title}（校正 ${delayMs} ms）`,videoId:row.videoId,mode:row.mode,stems:row.stems,mime:'audio/wav',created:Date.now(),seconds:audio.duration,bytes:blob.size,complete:true,parentId:row.id,delayMs};
+      const result={id:crypto.randomUUID(),title:row.title,videoId:row.videoId,mode:row.mode,stems:row.stems,mime:'audio/wav',created:Date.now(),seconds:audio.duration,bytes:blob.size,complete:true,parentId:row.id,delayMs,appliedDelayMs:delayMs};
       await store.save(result,blob,0);refresh(await store.list());$('post-recording').value=result.id;choose();clearAudio();url=URL.createObjectURL(blob);$('post-audio').src=url;$('post-audio').hidden=false;
       status('已另存校正後錄音，請按下方播放鍵試聽；可按「轉 MP3 並下載」。原錄音保留，可選回它再調整。');
       window.dispatchEvent(new Event('recording-post-saved'));
@@ -102,7 +102,7 @@ export function createRecordingPost({store,stop,pause,reference=()=>null}) {
   $('post-mp3').addEventListener('click',()=>run(async row=>{
     status('正在本機轉成 MP3…');const blob=await store.blob(row),response=await localRequest('/recordings/mp3',blob),mp3=await response.blob();
     let savedPath='',saveError='';try{savedPath=(await store.saveMp3(row,mp3)).path;}catch(error){saveError=error.message;}
-    const href=URL.createObjectURL(mp3),a=document.createElement('a');a.href=href;a.download=row.title.replace(/[\\/:*?"<>|]/g,'_').slice(0,100)+'.mp3';a.click();setTimeout(()=>URL.revokeObjectURL(href),60000);status(savedPath?'MP3 已轉換並開始下載，同時保存至 '+savedPath+'。':'MP3 已轉換並開始下載，但尚未存入錄音目錄：'+saveError);
+    const href=URL.createObjectURL(mp3),a=document.createElement('a');a.href=href;a.download=row.title.replace(/[\\/:*?"<>|]/g,'_').slice(0,100)+recordingDelaySuffix(row)+'.mp3';a.click();setTimeout(()=>URL.revokeObjectURL(href),60000);status(savedPath?'MP3 已轉換並開始下載，同時保存至 '+savedPath+'。':'MP3 已轉換並開始下載，但尚未存入錄音目錄：'+saveError);
   }));
   window.addEventListener('pagehide',clearAudio);
   return {refresh,select,controls,clearAudio};

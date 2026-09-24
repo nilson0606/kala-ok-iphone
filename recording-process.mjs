@@ -1,5 +1,10 @@
 import { ScoringTake, validateReference } from './scoring.mjs';
 import { balanceGains, createRecordingMix } from './recording-mix.mjs';
+// Describe the audio that was actually rendered, never a pending score correction.
+export function recordingDelaySuffix(meta) {
+  const ms=meta.appliedDelayMs ?? (meta.parentId ? meta.delayMs : undefined);
+  return Number.isFinite(ms) ? `${ms>=0?'+':''}${ms}ms` : '';
+}
 export function delaySeconds(ms) {
   if(!Number.isFinite(ms)||Math.abs(ms)>2000)throw new Error('延時需介於 −2000 與 +2000 ms。');
   return ms/1000;
