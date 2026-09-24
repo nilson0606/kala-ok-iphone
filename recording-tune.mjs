@@ -1,13 +1,13 @@
 import { detectPitch } from './audio.mjs';
 
-const profiles={off:{label:'關閉',amount:0,response:0,clarity:1,lock:0},light:{label:'輕度',amount:.35,response:.12,clarity:.82,lock:0},medium:{label:'中度',amount:.85,response:.025,clarity:.75,lock:.025},strong:{label:'強烈',amount:1,response:.001,clarity:.68,lock:.08}};
+const profiles={off:{label:'關閉',amount:0,synth:0},light:{label:'輕度',amount:1,synth:.18},medium:{label:'中度',amount:1,synth:.48},strong:{label:'強烈',amount:1,synth:.78}};
 export function tuningProfile(value='off') {
-  if(!Object.hasOwn(profiles,value))throw new Error('無效的電子修音強度。');
+  if(!Object.hasOwn(profiles,value))throw new Error('無效的合成器效果強度。');
   return {id:value,...profiles[value]};
 }
 export function recordingTuningSuffix(meta) {
   const id=meta?.vocalTuning?.strength;
-  return id&&id!=='off'&&Object.hasOwn(profiles,id)?`_修音${profiles[id].label}`:'';
+  return id&&id!=='off'&&Object.hasOwn(profiles,id)?`_${meta.vocalTuning.version>=3?"合成器":"修音"}${profiles[id].label}`:'';
 }
 
 // Short-window normalized autocorrelation fallback (NSDF / McLeod method).
@@ -35,12 +35,30 @@ function fallbackPitch(input,rate,clarity) {
   return hz>=65&&hz<=1000?hz:null;
 }
 
-// Offline, monophonic TD-PSOLA: move overlapping pitch-synchronous grains,
-// not playback speed. All channels share pitch marks; duration is unchanged.
-// The target is the nearest chromatic note, not the song's reference melody.
+// A warm, band-limited keyboard/lead wavetable with decreasing harmonics.
+// No pulse train, frozen vocal grains or vocoder-like robotic modulation. Normalize RMS so strength is a timbre
+// control rather than an implicit volume boost. No model or MIDI file needed.
+function synthTable(rate,maxHz) {
+  const size=4096,table=new Float32Array(size+1),harmonics=Math.max(1,Math.min(7,Math.floor(Math.min(7000,rate*.45)/maxHz)));
+  let energy=0;
+  for(let i=0;i<size;i++){
+    const phase=2*Math.PI*i/size;let value=0;
+    for(let h=1;h<=harmonics;h++){
+      const amplitude=[0,1,.32,.16,.09,.05,.025,.012][h];
+      value+=amplitude*Math.cos(h*phase);
+    }
+    table[i]=value;energy+=value*value;
+  }
+  const scale=1/Math.sqrt(energy/size);
+  for(let i=0;i<size;i++)table[i]*=scale;table[size]=table[0];return table;
+}
+
+// Blend a separate musical synth voice into the original vocal. The original
+// waveform is not retuned, chopped or time-stretched. Strength changes the
+// instrument/voice blend, not the amount of robotic pitch locking.
 export function tuneChannels(channels,rate,strength='off',progress=()=>{},report=()=>{}) {
   const profile=tuningProfile(strength),length=channels[0]?.length;
-  if(!channels.length||channels.length>8||!Number.isInteger(rate)||rate<8000||rate>192000||!length||length>rate*3600||channels.some(c=>!(c instanceof Float32Array)||c.length!==length))throw new Error('電子修音音訊格式不支援。');
+  if(!channels.length||channels.length>8||!Number.isInteger(rate)||rate<8000||rate>192000||!length||length>rate*3600||channels.some(c=>!(c instanceof Float32Array)||c.length!==length))throw new Error('合成器效果音訊格式不支援。');
   if(!profile.amount)return channels;
   const output=channels.map(c=>c.slice()),mono=new Float32Array(length);
   for(let i=0;i<length;i++){
@@ -60,7 +78,7 @@ export function tuneChannels(channels,rate,strength='off',progress=()=>{},report
     const pitch=detectPitch(window,analysisRate);
     let energy=0;for(let j=Math.max(0,center-80);j<Math.min(low.length,center+80);j++)energy+=low[j]*low[j];
     const audible=energy/160>.000036;
-    const hz=pitch.hz&&pitch.confidence>=.88?pitch.hz:fallbackPitch(window.subarray(160,480),analysisRate,profile.clarity);
+    const hz=pitch.hz&&pitch.confidence>=.88?pitch.hz:fallbackPitch(window.subarray(160,480),analysisRate,.75);
     frames.push(audible?(hz||0):0);active.push(audible);
     if(frames.length%50===0)progress(Math.round(center/low.length*65));
   }
@@ -72,70 +90,42 @@ export function tuneChannels(channels,rate,strength='off',progress=()=>{},report
     if(!frames[first]){first++;continue;}
     let last=first+1;
     while(last<frames.length&&frames[last]&&Math.abs(Math.log2(frames[last]/frames[last-1]))<.2)last++;
-    // Leave a guard around uncertain consonants and voiced/unvoiced transitions.
     const start=Math.ceil(first*fullHop+rate*.01),end=Math.min(length,Math.floor((last-1)*fullHop-rate*.01));
     if(end-start>=rate*.035){
-      const hzAt=pos=>{
-        const x=Math.max(first,Math.min(last-1,pos/fullHop)),i=Math.floor(x),f=x-i;
-        return frames[i]*(1-f)+frames[Math.min(last-1,i+1)]*f;
-      };
-      const corrections=[];let previous=0,target=null;
+      const melody=[],envelopes=channels.map(()=>[]);let smoothed=null,target=null;
       for(let f=first;f<last;f++){
         const midi=69+12*Math.log2(frames[f]/440);
-        if(target===null||Math.abs(midi-target)>.55)target=Math.round(midi);
-        const wanted=Math.max(-.55,Math.min(.55,target-midi))*profile.amount;
-        previous+=(wanted-previous)*(1-Math.exp(-.01/profile.response));corrections.push(previous);
-      }
-      const ratioAt=pos=>{
-        const x=Math.max(0,Math.min(corrections.length-1,pos/fullHop-first)),i=Math.floor(x),f=x-i;
-        return 2**((corrections[i]*(1-f)+corrections[Math.min(i+1,corrections.length-1)]*f)/12);
-      };
-      const peak=(predicted,radius)=>{
-        let best=Math.max(start,Math.round(predicted-radius)),value=-Infinity;
-        for(let i=best;i<=Math.min(end-1,Math.round(predicted+radius));i++)if(mono[i]>value){value=mono[i];best=i;}
-        return best;
-      };
-      const marks=[peak(start+rate/hzAt(start),rate/hzAt(start)*.45)];
-      while(true){const mark=marks.at(-1),period=rate/hzAt(mark),next=peak(mark+period,period*.2);if(next>=end-period||next<=mark)break;marks.push(next);}
-      if(marks.length>=4){
-        const size=end-start,weight=new Float32Array(size),sum=channels.map(()=>new Float32Array(size));
-        let sourceIndex=0,lockedIndex=0;
-        const amplitudes=marks.map(mark=>{
-          let energy=0,count=0;const radius=Math.ceil(rate/hzAt(mark));
-          for(let j=Math.max(start,mark-radius);j<Math.min(end,mark+radius);j++){energy+=mono[j]*mono[j];count++;}
-          return Math.sqrt(energy/Math.max(1,count));
-        });
-        for(let targetMark=marks[0];targetMark<marks.at(-1);){
-          while(sourceIndex+1<marks.length&&Math.abs(marks[sourceIndex+1]-targetMark)<Math.abs(marks[sourceIndex]-targetMark))sourceIndex++;
-          // Strong mode repeats a local vocal grain for 80 ms, making the
-          // periodic/robotic color explicit even on an already in-tune note.
-          // Preserve the current amplitude envelope, never synthesize a sine voice.
-          const anchor=profile.lock?marks[0]+Math.floor((targetMark-marks[0])/(rate*profile.lock))*rate*profile.lock:targetMark;
-          while(lockedIndex+1<marks.length&&Math.abs(marks[lockedIndex+1]-anchor)<Math.abs(marks[lockedIndex]-anchor))lockedIndex++;
-          const mark=marks[lockedIndex],period=rate/hzAt(mark),radius=Math.ceil(period),center=Math.round(targetMark);
-          const gain=Math.min(1.5,amplitudes[sourceIndex]/Math.max(1e-6,amplitudes[lockedIndex]));
-          for(let d=-radius;d<=radius;d++){
-            const src=mark+d,dest=center+d-start;
-            if(dest<0||dest>=size||src<start||src>=end)continue;
-            const w=.5+.5*Math.cos(Math.PI*d/radius);weight[dest]+=w;
-            for(let c=0;c<channels.length;c++)sum[c][dest]+=channels[c][src]*w*gain;
-          }
-          targetMark+=rate/(hzAt(targetMark)*ratioAt(targetMark));
+        if(target===null||Math.abs(midi-target)>.6)target=Math.round(midi);
+        // Soft note transitions on the instrument only; the singer stays intact.
+        smoothed=smoothed===null?midi:smoothed+(target-smoothed)*(1-Math.exp(-.01/.04));
+        melody.push(440*2**((smoothed-69)/12));
+        const center=Math.round(f*fullHop),from=Math.max(start,center-Math.round(rate*.01)),to=Math.min(end,center+Math.round(rate*.01));
+        for(let c=0;c<channels.length;c++){
+          let energy=0;for(let j=from;j<to;j++)energy+=channels[c][j]**2;
+          envelopes[c].push(Math.sqrt(energy/Math.max(1,to-from)));
         }
-        for(let i=0;i<size;i++){
-          // Crossfade only where grains overlap reliably, retain exact original
-          // samples outside voiced regions. No gating or time displacement.
-          if(weight[i]<.5)continue;
-          const edge=Math.min(1,i/(rate*.015),(size-1-i)/(rate*.015));
-          const blend=(.5-.5*Math.cos(Math.PI*Math.max(0,edge)))*Math.min(1,(weight[i]-.5)*2);
-          if(blend>.1)processed++;
-          for(let c=0;c<channels.length;c++)output[c][start+i]=channels[c][start+i]*(1-blend)+sum[c][i]/weight[i]*blend;
+      }
+      // Loop instead of spread: a sustained tone may contain many frames.
+      let highest=0;for(const hz of melody)highest=Math.max(highest,hz);
+      const table=synthTable(rate,highest);let phase=0;
+      for(let position=start;position<end;position++){
+        const x=Math.max(0,Math.min(melody.length-1,position/fullHop-first)),index=Math.floor(x),fraction=x-index,next=Math.min(melody.length-1,index+1);
+        const hz=melody[index]*(1-fraction)+melody[next]*fraction;
+        phase=(phase+hz/rate)%1;
+        const lookup=phase*4096,i=Math.floor(lookup),part=lookup-i;
+        const carrier=table[i]*(1-part)+table[i+1]*part;
+        const edge=Math.max(0,Math.min(1,(position-start)/(rate*.02),(end-1-position)/(rate*.02)));
+        const fade=.5-.5*Math.cos(Math.PI*edge),wet=profile.synth*fade;
+        if(fade>.1)processed++;
+        for(let c=0;c<channels.length;c++){
+          const envelope=envelopes[c][index]*(1-fraction)+envelopes[c][next]*fraction;
+          output[c][position]=channels[c][position]*(1-wet)+carrier*envelope*wet;
         }
       }
     }
     first=last;progress(65+Math.round(first/frames.length*35));
   }
-  report({processedSeconds:processed/rate,duration:length/rate});progress(100);return output;
+  report({processedSeconds:processed/rate,duration:length/rate,synthMix:profile.synth});progress(100);return output;
 }
 
 // Copies go to the worker: the saved/raw AudioBuffer is never detached or edited.
@@ -144,9 +134,9 @@ export async function tunedVoiceBuffer(context,raw,strength='off',progress=()=>{
   const channels=Array.from({length:raw.numberOfChannels},(_,c)=>raw.getChannelData(c).slice());
   const result=await new Promise((resolve,reject)=>{
     const worker=new Worker(new URL('./recording-tune.mjs',import.meta.url),{type:'module'});
-    const timer=setTimeout(()=>finish(new Error('電子修音逾時，請改用較短錄音。')),600000);
+    const timer=setTimeout(()=>finish(new Error('合成器效果處理逾時，請改用較短錄音。')),600000);
     const finish=(error,value)=>{clearTimeout(timer);worker.terminate();error?reject(error):resolve(value);};
-    worker.onerror=()=>finish(new Error('電子修音無法啟動，請更新頁面後重試。'));
+    worker.onerror=()=>finish(new Error('合成器效果無法啟動，請更新頁面後重試。'));
     worker.onmessage=({data})=>{if(data.error)finish(new Error(data.error));else if(data.channels){report(data.report);finish(null,data.channels);}else progress(data.progress);};
     worker.postMessage({channels,rate:raw.sampleRate,strength},channels.map(c=>c.buffer));
   });

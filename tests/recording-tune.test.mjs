@@ -5,17 +5,30 @@ import {detectPitch} from '../audio.mjs';
 const rate=48000;
 function tone(hz,seconds=1.5){return Float32Array.from({length:rate*seconds},(_,i)=>.18*Math.sin(2*Math.PI*hz*i/rate)+.06*Math.sin(4*Math.PI*hz*i/rate));}
 function pitch(a){const values=[];for(let i=rate*.4;i<rate*1.2;i+=4800)values.push(detectPitch(a.subarray(i,i+6144),rate).hz);assert.ok(values.every(Boolean));return values.reduce((a,b)=>a+b,0)/values.length;}
-test('graded tuning corrects both sharp and flat sustained voices without editing the source',()=>{
-  for(const [target,cents] of [[110,35],[220,-30],[440,35]]){
-    const original=tone(target*2**(cents/1200)),snapshot=original.slice();let error=Infinity;
-    for(const level of ['off','light','medium','strong']){
-      const result=tuneChannels([original],rate,level)[0],hz=pitch(result),current=Math.abs(1200*Math.log2(hz/target));
-      assert.ok(current<error,`${target} ${level}: ${current} cents versus ${error}`);error=current;
-      assert.equal(result.length,original.length);assert.ok(result.every(Number.isFinite));
-      assert.ok(result.every(x=>Math.abs(x)<=.241),'overlap normalization must not boost peaks');
+function amplitude(a,hz,start=.4,end=1.4){let re=0,im=0;for(let i=Math.round(rate*start);i<Math.round(rate*end);i++){re+=a[i]*Math.cos(2*Math.PI*hz*i/rate);im+=a[i]*Math.sin(2*Math.PI*hz*i/rate);}return 2*Math.hypot(re,im)/(rate*(end-start));}
+test('strength blends more musical synth while preserving the natural detuned voice and original file',()=>{
+  for(const [target,input] of [[110,113],[220,225],[440,450]]){
+    const raw=tone(input,2),snapshot=raw.slice();let previousSynth=0,previousVoice=Infinity;
+    for(const level of ['light','medium','strong']){
+      const result=tuneChannels([raw],rate,level)[0],synth=amplitude(result,target),voice=amplitude(result,input);
+      assert.ok(synth>previousSynth,`${target} ${level}: more instrument`);previousSynth=synth;
+      assert.ok(voice<previousVoice,`${target} ${level}: less dry voice`);previousVoice=voice;
+      assert.ok(voice>.02,'original natural pitch remains audible instead of being retuned');
+      assert.equal(result.length,raw.length);assert.ok(result.every(Number.isFinite));
+      let inputEnergy=0,outputEnergy=0;for(let i=rate*.4;i<rate*1.4;i++){inputEnergy+=raw[i]**2;outputEnergy+=result[i]**2;}
+      assert.ok(outputEnergy<inputEnergy*1.15,'color must not be an RMS gain boost');
+      assert.ok(result.every(x=>Math.abs(x)<1),'test signal remains unclipped');
     }
-    assert.ok(error<3);assert.deepEqual(original,snapshot);
+    assert.deepEqual(raw,snapshot);
   }
+});
+test('already in-tune singing gains progressively stronger instrument harmonics',()=>{
+  const raw=Float32Array.from({length:rate*2},(_,i)=>.15*Math.sin(2*Math.PI*220*i/rate));let previous=0;
+  for(const level of ['light','medium','strong']){
+    const result=tuneChannels([raw],rate,level)[0],color=amplitude(result,660);
+    assert.ok(color>previous*1.4,`${level}: ${color} vs ${previous}`);previous=color;
+  }
+  assert.ok(previous>.01,'synth character must be present even when no pitch correction is needed');
 });
 test('off is an exact bypass; silence and uncertain noise are retained',()=>{
   const input=[tone(450)];assert.equal(tuneChannels(input,rate,'off'),input);
@@ -36,9 +49,10 @@ test('invalid strength and malformed audio fail clearly; filenames describe the 
   assert.equal(recordingTuningSuffix({}),'');assert.equal(recordingTuningSuffix({vocalTuning:{strength:'off'}}),'');
   assert.equal(recordingTuningSuffix({vocalTuning:{strength:'strong'}}),'_修音強烈');
   assert.equal(recordingTuningSuffix({vocalTuning:{version:2,strength:'strong'}}),'_修音強烈');
+  assert.equal(recordingTuningSuffix({vocalTuning:{version:3,strength:'strong'}}),'_合成器強烈');
 });
 
-test('strong tuning flattens vibrato more than light tuning while retaining the voice waveform',()=>{
+test('the stronger instrument layer follows stable notes while original vibrato stays in the vocal layer',()=>{
   const a=new Float32Array(rate*3);let phase=0;
   for(let i=0;i<a.length;i++){phase+=2*Math.PI*220*2**((20+25*Math.sin(2*Math.PI*5*i/rate))/1200)/rate;a[i]=.2*Math.sin(phase)+.06*Math.sin(2*phase);}
   const deviation=[];
