@@ -159,7 +159,7 @@
     <label for="post-softening">歌聲柔化</label><select id="post-softening" disabled><option value="off">關閉（預設，保留原音色）</option><option value="light">輕度（柔和一點）</option><option value="medium">中度（明顯溫潤）</option><option value="strong">強烈（厚柔、較暗）</option></select>
     <p class="help">音色效果：輕度稍微柔和，中度明顯降低尖亮感，強烈做出厚柔、較暗的音色；不是修復原音或消除呼吸聲。只處理歌唱者，配樂與和音不套用。選好後按「重新合成」另存，原錄音及評分不變；強烈會犧牲一些明亮感與咬字清晰度。比較強度時請選回原始錄音，延時填相同數值。</p>
     <label for="post-tuning">電子修音／電音效果（保留人聲）</label><select id="post-tuning" disabled><option value="off">關閉（預設）</option><option value="light">輕度（自然微調）</option><option value="medium">中度（快速修音／輕電音）</option><option value="strong">強烈（明顯機械電音）</option></select>
-    <p class="help">音色效果：輕度微調音高，中度快速拉近音符，強烈加上人聲波形週期鎖定，做出明顯機械電音感；即使原本唱得準，也可用強烈改變音色。不是 MIDI 樂器替換，也不會依原唱旋律改成正確音符；唱錯整個音、多人聲或伴奏漏入時可能修錯。可搭配歌聲柔化，只套用歌唱者，另存成品，原錄音與評分不變。比較強度請選回原始錄音。新版成品以「Ⅱ」標示，舊成品不會自動改變。</p>
+    <p class="help">音色效果：輕度微調音高，中度快速拉近音符，強烈加上人聲波形週期鎖定，做出明顯機械電音感；即使原本唱得準，也可用強烈改變音色。不是 MIDI 樂器替換，也不會依原唱旋律改成正確音符；唱錯整個音、多人聲或伴奏漏入時可能修錯。可搭配歌聲柔化，只套用歌唱者，另存成品，原錄音與評分不變。比較強度請選回原始錄音。既有成品不會自動改變，需重新合成才會套用目前效果。</p>
     <div class="button-row"><button id="post-rescore" type="button" disabled>1. 調延時重新評分</button><button id="post-remix" type="button" disabled>2. 重新合成（延時／音色）</button><button id="post-mp3" type="button" class="secondary" disabled>3. 轉 MP3 並下載</button></div>
     <p class="help"><button id="post-diagnostic" type="button" class="secondary" disabled>下載這筆評分診斷</button> 包含這筆原始錄音、乾淨歌聲、時間位置與評分基準；只下載到本機，供檢查對齊問題。</p>
     <p id="post-score" class="score-title" role="status"></p><p id="post-status" class="status" role="status">新版錄音會保存乾淨歌聲與評分資料，後處理只在本機進行。</p>

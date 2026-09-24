@@ -7,7 +7,7 @@ export function softeningProfile(value='off') {
 }
 export function recordingSofteningSuffix(meta) {
   const id=meta?.vocalSoftening?.strength;
-  return id&&id!=='off'&&Object.hasOwn(presets,id)?`_柔化${id==="strong"&&!(meta.vocalSoftening.version>=2)?"較強":presets[id].label}${meta.vocalSoftening.version>=2?"Ⅱ":""}`:'';
+  return id&&id!=='off'&&Object.hasOwn(presets,id)?`_柔化${id==="strong"&&!(meta.vocalSoftening.version>=2)?"較強":presets[id].label}`:'';
 }
 export async function softenedVoice(context,source,raw,placement,strength='off') {
   const profile=softeningProfile(strength);

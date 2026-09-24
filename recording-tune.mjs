@@ -7,7 +7,7 @@ export function tuningProfile(value='off') {
 }
 export function recordingTuningSuffix(meta) {
   const id=meta?.vocalTuning?.strength;
-  return id&&id!=='off'&&Object.hasOwn(profiles,id)?`_修音${profiles[id].label}${meta.vocalTuning.version>=2?"Ⅱ":""}`:'';
+  return id&&id!=='off'&&Object.hasOwn(profiles,id)?`_修音${profiles[id].label}`:'';
 }
 
 // Short-window normalized autocorrelation fallback (NSDF / McLeod method).

@@ -223,7 +223,7 @@ try {
   assert.ok(await page.locator('#post-softening').isDisabled());
   assert.match(await page.locator('#post-recording').locator('option:checked').textContent(),/柔化輕度/);
   assert.deepEqual((await records()).find(r=>r.id===harmonyRecord.id),sourceBeforeSoftening,'softening must preserve source and its scoring data');
-  const softDownload=page.waitForEvent('download');await page.locator('#post-mp3').click();assert.ok((await softDownload).suggestedFilename().endsWith('_柔化輕度Ⅱ+175ms.mp3'));
+  const softDownload=page.waitForEvent('download');await page.locator('#post-mp3').click();assert.ok((await softDownload).suggestedFilename().endsWith('_柔化輕度+175ms.mp3'));
   await page.waitForFunction(()=>document.querySelector('#post-status').textContent.includes('MP3 已轉換'));
   await page.evaluate(id=>recordStore.delete(id),softened.id);
 
@@ -234,10 +234,10 @@ try {
   const tuned=(await records()).find(r=>r.parentId===harmonyRecord.id&&r.vocalTuning?.strength==='strong');assert.ok(tuned);
   assert.equal(tuned.vocalSoftening.strength,'light');assert.equal(tuned.vocalTuning.version,2);assert.ok(tuned.vocalTuning.stats.processedSeconds>0);assert.equal(tuned.appliedDelayMs,175);
   assert.ok(await page.locator('#post-tuning').isDisabled());
-  assert.match(await page.locator('#post-recording').locator('option:checked').textContent(),/柔化輕度Ⅱ_修音強烈Ⅱ/);
+  assert.match(await page.locator('#post-recording').locator('option:checked').textContent(),/柔化輕度_修音強烈/);
   assert.deepEqual((await records()).find(r=>r.id===harmonyRecord.id),sourceBeforeSoftening,'tuning must preserve original recording and scores');
   const tunedAudio=await spectrum(tuned.id);assert.ok(tunedAudio.voice>.02&&tunedAudio.backing>.02&&tunedAudio.harmony>.02,JSON.stringify(tunedAudio));
-  const tuneDownload=page.waitForEvent('download');await page.locator('#post-mp3').click();assert.ok((await tuneDownload).suggestedFilename().endsWith('_柔化輕度Ⅱ_修音強烈Ⅱ+175ms.mp3'));
+  const tuneDownload=page.waitForEvent('download');await page.locator('#post-mp3').click();assert.ok((await tuneDownload).suggestedFilename().endsWith('_柔化輕度_修音強烈+175ms.mp3'));
   await page.waitForFunction(()=>document.querySelector('#post-status').textContent.includes('MP3 已轉換'));
   await page.evaluate(id=>recordStore.delete(id),tuned.id);
 

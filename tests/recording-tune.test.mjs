@@ -35,7 +35,7 @@ test('invalid strength and malformed audio fail clearly; filenames describe the 
   assert.throws(()=>tuneChannels([tone(440),new Float32Array(1)],rate,'light'));
   assert.equal(recordingTuningSuffix({}),'');assert.equal(recordingTuningSuffix({vocalTuning:{strength:'off'}}),'');
   assert.equal(recordingTuningSuffix({vocalTuning:{strength:'strong'}}),'_修音強烈');
-  assert.equal(recordingTuningSuffix({vocalTuning:{version:2,strength:'strong'}}),'_修音強烈Ⅱ');
+  assert.equal(recordingTuningSuffix({vocalTuning:{version:2,strength:'strong'}}),'_修音強烈');
 });
 
 test('strong tuning flattens vibrato more than light tuning while retaining the voice waveform',()=>{
