@@ -3,8 +3,21 @@ import { createCalibration } from './calibration.mjs';
 import { createKaraokeSession } from './session.mjs';
 const $ = id => document.getElementById(id);
 // Opt-in local troubleshooting: no audio, credentials, or full reference data are logged.
-const playbackTraceEnabled=new URLSearchParams(location.search).get('tracePlayback')==='1';
+let playbackTraceEnabled=new URLSearchParams(location.search).get('tracePlayback')==='1';
 let playbackTraceQueue=Promise.resolve();
+function playbackTraceStatus(text) {
+  let node=$('playback-trace-status');
+  if(!node){node=document.createElement('p');node.id='playback-trace-status';node.className='status';node.setAttribute('role','status');$('mic-status').after(node);}
+  node.textContent=text;
+}
+async function connectPlaybackTrace() {
+  try {
+    const session=await(await fetch('http://127.0.0.1:4174/session',{cache:'no-store',signal:AbortSignal.timeout(5000)})).json();
+    if(session.playbackTraceActive)playbackTraceEnabled=true;
+    if(playbackTraceEnabled){playbackTraceStatus('播放追蹤連線中…（只記錄狀態，不錄音）');tracePlayback('trace-connected');}
+  } catch { if(playbackTraceEnabled)playbackTraceStatus('播放追蹤未連線：尚未收到紀錄，請確認本機工具與本機網路權限。'); }
+}
+
 function tracePlayback(stage, extra={}) {
   if(!playbackTraceEnabled)return;
   const read=fn=>{try{return fn()??null;}catch{return null;}};
@@ -19,9 +32,11 @@ function tracePlayback(stage, extra={}) {
   if(snapshot.capture){delete snapshot.capture.deviceId;delete snapshot.capture.groupId;}
   playbackTraceQueue=playbackTraceQueue.catch(()=>{}).then(async()=>{
     const base='http://127.0.0.1:4174',session=await(await fetch(base+'/session',{signal:AbortSignal.timeout(5000)})).json();
-    if(!session.features?.includes('playback-trace'))return;
-    await fetch(base+'/playback-trace',{method:'POST',headers:{'Content-Type':'application/json','X-Karaoke-Token':session.token},body:JSON.stringify(snapshot),signal:AbortSignal.timeout(5000)});
-  }).catch(()=>{});
+    if(!session.features?.includes('playback-trace'))throw new Error('本機工具尚未支援追蹤');
+    const response=await fetch(base+'/playback-trace',{method:'POST',headers:{'Content-Type':'application/json','X-Karaoke-Token':session.token},body:JSON.stringify(snapshot),signal:AbortSignal.timeout(5000)});
+    if(!response.ok)throw new Error(`本機回應 ${response.status}`);
+    playbackTraceStatus(`播放追蹤已連線 · 本機已收到 ${stage}（不錄音）`);
+  }).catch(error=>playbackTraceStatus(`播放追蹤未送達：${error.message}。這次紀錄尚未收到。`));
 }
 
 let player, playerReady, apiPromise, stream, context, analyser, samples, micTimer;
@@ -295,3 +310,6 @@ const singing = createKaraokeSession({ voiced: () => micPitch !== null, context:
 calibration = createCalibration({ context: () => context, micReady: () => !!stream && context?.state === 'running', beforeStart: () => singing.pauseForCalibration() });
 
 window.addEventListener('pageshow', e => { if (e.persisted) location.reload(); });
+
+window.addEventListener('local-tools-ready',connectPlaybackTrace);
+connectPlaybackTrace();

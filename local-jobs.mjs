@@ -3,6 +3,7 @@ import { exportRecordingMp3 } from './recording-export.mjs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { spawn, execFile } from 'node:child_process';
 import { readFile, rm, mkdir, readdir, stat } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LocalLibrary, cacheKey } from './local-library.mjs';
@@ -143,7 +144,7 @@ async function start(videoId, seconds, preview = false, force = false, vocalMode
   return job;
 }
 export async function handleLocalJobs(req, res) {
-  if (req.url === '/session' && req.method === 'GET') { json(res, 200, { token, features: ['library', 'stem-preview', 'library-location', 'separation-progress', 'rebuild-song', 'lead-vocals', 'separation-models', 'score-masks', 'pitch-methods', 'residual-separation', 'mel-roformer', 'recording-mp3', 'recording-library', 'recording-raw-mime', 'playback-trace'] }); return true; }
+  if (req.url === '/session' && req.method === 'GET') { json(res, 200, { token, playbackTraceActive: existsSync(path.join(root, '.runtime', 'playback-trace.enabled')), features: ['library', 'stem-preview', 'library-location', 'separation-progress', 'rebuild-song', 'lead-vocals', 'separation-models', 'score-masks', 'pitch-methods', 'residual-separation', 'mel-roformer', 'recording-mp3', 'recording-library', 'recording-raw-mime', 'playback-trace'] }); return true; }
   if (!req.url.startsWith('/jobs') && !req.url.startsWith('/library') && req.url !== '/shutdown' && req.url !== '/playback-trace' && !req.url.startsWith('/recordings')) return false;
   if (req.headers['x-karaoke-token'] !== token) { json(res, 403, { error: 'Session token required' }); return true; }
   if (req.url === '/playback-trace') {
