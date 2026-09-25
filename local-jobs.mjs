@@ -58,7 +58,7 @@ export function updateSeparation(job, data) {
   job.message = job.fallback ? 'GPU 無法完成分離，已改用 CPU 重新處理…' : job.device === 'cuda' ? `使用 GPU 在本機分離${subject}…` : `使用 CPU 在本機分離${subject}…`;
 }
 function summary(job) {
-  return { id: job.id, stage: job.stage, failedStage: job.failedStage, progressStage: job.progressStage, message: job.message, progress: job.progress ?? null, vocalMode: job.vocalMode, separationModel: job.separationModel, pitchMethod: job.pitchMethod, separationMethod: job.separationMethod, device: job.device ?? null, deviceName: job.deviceName ?? null, fallback: !!job.fallback, ready: !!job.reference,
+  return { id: job.id, networkFamily: job.networkFamily, stage: job.stage, failedStage: job.failedStage, progressStage: job.progressStage, message: job.message, progress: job.progress ?? null, vocalMode: job.vocalMode, separationModel: job.separationModel, pitchMethod: job.pitchMethod, separationMethod: job.separationMethod, device: job.device ?? null, deviceName: job.deviceName ?? null, fallback: !!job.fallback, ready: !!job.reference,
     title: job.reference?.title, duration: job.reference?.duration, bpm: job.reference?.bpm,
     voicedSeconds: job.reference?.voicedSeconds, audioCleared: !!job.reference && !job.reference.hasPreview, cacheId: job.cacheId, cached: !!job.cached, hasPreview: !!job.reference?.hasPreview };
 }
@@ -97,6 +97,14 @@ async function start(videoId, seconds, preview = false, force = false, vocalMode
     let data; try { data = JSON.parse(line); } catch { return; }
     job.updated = Date.now();
     if (names[data.stage]) { if (job.stage !== data.stage) logJob({ ...job, stage: data.stage }, 'stage'); job.stage = data.stage; job.message = names[data.stage]; }
+    if (data.stage === 'download') {
+      job.progress = null;
+      if (data.message) job.message = String(data.message).slice(0, 300);
+      if (['IPv4','IPv6'].includes(data.networkFamily)) {
+        job.networkFamily = data.networkFamily;
+        logJob(job, 'download-network', `${data.networkFamily}: ${String(data.networkReason || '').slice(0,80)}`);
+      }
+    }
     if (['residual_preparing','subtracting'].includes(data.stage)) job.progress = null;
     if (data.stage === 'reference') { job.message = String(data.message || ('建立 ' + pitchMethod.toUpperCase() + ' 音高與節拍基準…')); job.progress = Number.isFinite(data.progress) ? data.progress : null; }
     if (['separating','accompaniment_separating','lead_separating'].includes(data.stage)) updateSeparation(job, data);

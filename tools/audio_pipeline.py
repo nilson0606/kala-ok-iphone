@@ -236,7 +236,8 @@ def main():
                 command += ['--match-filter', '!is_live & !is_upcoming', '--download-sections', f'*0-{args.seconds}']
             else:
                 command += ['--match-filter', 'duration <= 900 & !is_live & !is_upcoming']
-            run(command + [url], timeout=600)
+            from download_network import download
+            download(command + [url], run=run, emit=emit)
             audio = job / 'audio.mp3'
             info = json.loads((job / 'audio.info.json').read_text(encoding='utf-8'))
             title = str(info.get('title') or url)[0:300]
