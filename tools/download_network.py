@@ -9,7 +9,10 @@ import threading
 import time
 
 
-def check_ipv6(timeout=2.0):
+IPV6_CHECK_TIMEOUT = 10.0
+
+
+def check_ipv6(timeout=IPV6_CHECK_TIMEOUT):
     # DNS resolution can also block. A daemon worker and an overall deadline keep
     # this check bounded without changing socket defaults for other threads.
     result = queue.Queue()
@@ -55,7 +58,7 @@ def connection_failure(error):
 
 
 def download(command, *, run, emit):
-    emit('download', message='檢查 YouTube IPv6 連線（最多 2 秒）…')
+    emit('download', message=f'檢查 YouTube IPv6 連線（最多 {IPV6_CHECK_TIMEOUT:g} 秒）…')
     available, reason = check_ipv6()
     if available:
         emit('download', networkFamily='IPv6', networkReason=reason,
@@ -67,5 +70,5 @@ def download(command, *, run, emit):
                 raise
             reason = 'download-connection-failed'
     emit('download', networkFamily='IPv4', networkReason=reason,
-         message='IPv6 連線未通過，已自動切換 IPv4，正在取得 YouTube 音訊…')
+         message='IPv6 暫時無法連線，已自動使用 IPv4 繼續下載；不需重新操作。')
     return run([*command, '--force-ipv4'], timeout=600)
