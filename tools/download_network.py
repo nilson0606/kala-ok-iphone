@@ -9,7 +9,7 @@ import threading
 import time
 
 
-IPV6_CHECK_TIMEOUT = 10.0
+IPV6_CHECK_TIMEOUT = 2.0
 
 
 def check_ipv6(timeout=IPV6_CHECK_TIMEOUT):
